@@ -1,0 +1,16 @@
+The progress on transformer decoder models has been spearheaded to a large extent by OpenAI. These models are exceptionally good at predicting the next word in a sequence and are thus mostly used for text generation tasks (see Chapter 5 for more details). Their progress has been fueled by using larger datasets and scaling the lan‐guage models to larger and larger sizes. Let’s have a look at the evolution of these fas‐cinating generation models:
+GPT 
+The introduction of GPT combined two key ideas in NLP:17 the novel and effi‐cient transformer decoder architecture, and transfer learning. In that setup, the model was pretrained by predicting the next word based on the previous ones. The model was trained on the BookCorpus and achieved great results on down‐stream tasks such as classification.
+GPT-2 
+Inspired by the success of the simple and scalable pretraining approach, the origi‐nal model and training set were upscaled to produce GPT-2.18 This model is able to produce long sequences of coherent text. Due to concerns about possible mis‐use, the model was released in a staged fashion, with smaller models being pub‐lished first and the full model later.
+CTRL 
+Models like GPT-2 can continue an input sequence (also called a prompt). How‐ever, the user has little control over the style of the generated sequence. The Conditional Transformer Language (CTRL) model addresses this issue by adding“control tokens” at the beginning of the sequence.19 These allow the style of the generated text to be controlled, which allows for diverse generation.
+16 A. Wang et al., , 	(2019).
+17 A. Radford et al., , OpenAI (2018).
+18 A. Radford et al., , OpenAI (2019).
+19 N.S. Keskar et al., , (2019).
+GPT-3 
+Following the success of scaling GPT up to GPT-2, a thorough analysis on the behavior of language models at different scales revealed that there are simple power laws that govern the relation between compute, dataset size, model size, and the performance of a language model.20 Inspired by these insights, GPT-2 was upscaled by a factor of 100 to yield GPT-3,21 with 175 billion parameters. Besides being able to generate impressively realistic text passages, the model also exhibits few-shot learning capabilities: with a few examples of a novel task such as translating text to code, the model is able to accomplish the task on new exam‐ples. OpenAI has not open-sourced this model, but provides an interface through the .
+GPT-Neo/GPT-J-6B 
+GPT-Neo and GPT-J-6B are GPT-like models that were trained by , a collective of researchers who aim to re-create and release GPT-3 s.22 The current models are smaller variants of the full 175-billion-parameter model, with 1.3, 2.7, and 6 billion parameters, and are competitive with the smaller GPT-3 models OpenAI offers.
+The final branch in the transformers tree of life is the encoder-decoder models. Let’s take a look.

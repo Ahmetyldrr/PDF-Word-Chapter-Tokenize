@@ -1,0 +1,13 @@
+Scaling laws allow one to empirically quantify the “bigger is better” paradigm for lan‐guage models by studying their behavior with varying compute budget C, dataset size D, and model size N.2 The basic idea is to chart the dependence of the cross-entropy loss L on these three factors and determine if a relationship emerges. For autoregres‐sive models like those in the GPT family, the resulting loss curves are shown in Figure 11-2, where each blue curve represents the training run of a single model.
+Figure 11-2. Power-law scaling of test loss versus compute budget (lef), dataset size (mid‐dle), and model size (right) (courtesy of Jared Kaplan)
+From these loss curves we can draw a few conclusions about:
+Te relationship of performance and scale 
+Although many NLP researchers focus on architectural tweaks or hyperparame‐ter optimization (like tuning the number of layers or attention heads) to improve performance on a fixed set of datasets, the implication of scaling laws is that a more productive path toward better models is to focus on increasing N, C, and D in tandem.
+Smooth power laws 
+The test loss L has a power law relationship with each of N, C, and D across sev‐eral orders of magnitude (power law relationships are linear on a log-log scale). For X = N, C, D we can express these power law relationships as L X1/Xα, where α is a scaling exponent that is determined by a fit to the loss curves shown
+in Figure 11-2. 3 Typical values for αX lie in the 0.05–0.095 range, and one attrac‐tive feature of these power laws is that the early part of a loss curve can be extrapolated to predict what the approximate loss would be if training was con‐ducted for much longer.
+Sample efficiency 
+Large models are able to reach the same performance as smaller models with a smaller number of training steps. This can be seen by comparing the regions where a loss curve plateaus over some number of training steps, which indicates one gets diminishing returns in performance compared to simply scaling up the model.
+Somewhat surprisingly, scaling laws have also been observed for other modalities, like images, videos, and mathematical problem solving, as illustrated in Figure 11-3.
+Figure 11-3. Power-law scaling of test loss versus compute budget across a wide range of modalities (courtesy of Tom Henighan)
+Whether power-law scaling is a universal property of transformer language models is currently unknown. For now, we can use scaling laws as a tool to extrapolate large, expensive models without having to explicitly train them. However, scaling isn’t quite as easy as it sounds. Let’s now look at a few challenges that crop up when charting this frontier.

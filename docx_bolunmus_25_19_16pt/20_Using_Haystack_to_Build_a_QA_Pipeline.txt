@@ -1,0 +1,139 @@
+In our simple answer extraction example, we provided both the question and the con‐text to the model. However, in reality our system’s users will only provide a question about a product, so we need some way of selecting relevant passages from among all the reviews in our corpus. One way to do this would be to concatenate all the reviews of a given product together and feed them to the model as a single, long context. Although simple, the drawback of this approach is that the context can become extremely long and thereby introduce an unacceptable latency for our users’ queries. For example, let’s suppose that on average, each product has 30 reviews and each review takes 100 milliseconds to process. If we need to process all the reviews to get an answer, this would result in an average latency of 3 seconds per user query—much too long for ecommerce websites!
+To handle this, modern QA systems are typically based on the retriever-reader archi‐tecture, which has two main components:
+Retriever 
+Responsible for retrieving relevant documents for a given query. Retrievers are usually categorized as sparse or dense. Sparse retrievers use word frequencies to represent each document and query as a sparse vector.11 The relevance of a query and a document is then determined by computing an inner product of the vec‐tors. On the other hand, dense retrievers use encoders like transformers to repre‐sent the query and document as contextualized embeddings (which are dense vectors). These embeddings encode semantic meaning, and allow dense retriev‐ers to improve search accuracy by understanding the content of the query.
+Reader 
+Responsible for extracting an answer from the documents provided by the retriever. The reader is usually a reading comprehension model, although at the end of the chapter we’ll see examples of models that can generate free-form answers.
+11 A vector is sparse if most of its elements are zero.
+As illustrated in Figure 7-9, there can also be other components that apply post-processing to the documents fetched by the retriever or to the answers extracted by the reader. For example, the retrieved documents may need reranking to eliminate noisy or irrelevant ones that can confuse the reader. Similarly, postprocessing of the reader’s answers is often needed when the correct answer comes from various pas‐sages in a long document.
+Figure 7-9. Te retriever-reader architecture for modern QA systems
+To build our QA system, we’ll use the  developed by , a Ger‐man company focused on NLP. Haystthe retriever-rrchitec‐ture, abstracts much of the complexity involved in building these systems, and integrates tightly with  Transformers.
+In addition to the retriever and reader, there are two more components involved when building a QA pipeline with Haystack:
+Document store 
+A document-oriented database that stores documents and metadata which are provided to the retriever at query time
+Pipeline 
+Combines all the components of a QA system to enable custom query flows, merging documents from multiple retrievers, and more
+In this section we’ll look at how we can use these components to quickly build a pro‐totype QA pipeline. Later, we’ll examine how we can improve its performance.
+Initializing a document store
+In Haystack, there are various document stores to choose from and each one can be paired with a dedicated set of retrievers. This is illustrated in Table 7-3, where the compatibility of sparse (TF-IDF, BM25) and dense (Embedding, DPR) retrievers is shown for each of the available document stores. We’ll explain what all these acro‐nyms mean later in this chapter.
+Table 7-3. Compatibility of Haystack retrievers and document stores
+Since we’ll be exploring both sparse and dense retrievers in this chapter, we’ll use the ElasticsearchDocumentStore, which is compatible with both retriever types. Elastic‐search is a search engine that is capable of handling a diverse range of data types, including textual, numerical, geospatial, structured, and unstructured. Its ability to store huge volumes of data and quickly filter it with full-text search features makes it especially well suited for developing QA systems. It also has the advantage of being the industry standard for infrastructure analytics, so there’s a good chance your com‐pany already has a cluster that you can work with.
+To initialize the document store, we first need to download and install Elasticsearch. By following Elasticsearch’s ,12 we can grab the latest release for Linux with wget and unpack it with the tar shell command:
+url="""https://artifacts.elastic.co/downloads/elasticsearch/\
+elasticsearch-7.9.2-linux-x86_64.tar.gz"""
+!wget-nc-q {url}
+!tar-xzfelasticsearch-7.9.2-linux-x86_64.tar.gz
+Next we need to start the Elasticsearch server. Since we’re running all the code in this book within Jupyter notebooks, we’ll need to use Python’s Popen() function to spawn
+12 The guide also provides installation instructions for macOS and Windows.
+a new process. While we’re at it, let’s also run the subprocess in the background using the chown shell command:
+importos 
+fromsubprocessimportPopen, PIPE, STDOUT
+# Run Elasticsearch as a background process 
+!chown-Rdaemon:daemonelasticsearch-7.9.2 
+es_server=Popen(args=['elasticsearch-7.9.2/bin/elasticsearch'], 
+	stdout=PIPE, stderr=STDOUT, preexec_fn=lambda: os.setuid(1)) # Wait until Elasticsearch has started 
+!sleep30
+In the Popen() function, the args specify the program we wish to execute, while stdout=PIPE creates a new pipe for the standard output and stderr=STDOUT collects the errors in the same pipe. The preexec_fn argument specifies the ID of the subpro‐cess we wish to use. By default, Elasticsearch runs locally on port 9200, so we can test the connection by sending an HTTP request to localhost:
+!curl-XGET"localhost:9200/?pretty"
+{
+ "name" : "96938eee37cd",
+ "cluster_name" : "docker-cluster",
+ "cluster_uuid" : "ABGDdvbbRWmMb9Umz79HbA",
+ "version" : {
+	 "number" : "7.9.2",
+	 "build_flavor" : "default",
+	 "build_type" : "docker",
+	 "build_hash" : "d34da0ea4a966c4e49417f2da2f244e3e97b4e6e",	 "build_date" : "2020-09-23T00:45:33.626720Z",
+	 "build_snapshot" : false,
+	 "lucene_version" : "8.6.2",
+	 "minimum_wire_compatibility_version" : "6.8.0",
+	 "minimum_index_compatibility_version" : "6.0.0-beta1" },
+ "tagline" : "You Know, for Search" 
+}
+Now that our Elasticsearch server is up and running, the next thing to do is instanti‐ate the document store:
+fromhaystack.document_store.elasticsearchimportElasticsearchDocumentStore
+# Return the document embedding for later use with dense retriever document_store=ElasticsearchDocumentStore(return_embedding=True)
+By default, ElasticsearchDocumentStore creates two indices on Elasticsearch: one called document for (you guessed it) storing documents, and another called label for storing the annotated answer spans. For now, we’ll just populate the document index
+with the SubjQA reviews, and Haystack’s document stores expect a list of dictionaries with text and meta keys as follows:
+{
+	 "text": "<the-context>",
+	 "meta": {
+		 "field_01": "<additional-metadata>",		 "field_02": "<additional-metadata>",		 ...
+	 } 
+}
+The fields in meta can be used for applying filters during retrieval. For our purposes we’ll include the item_id and q_review_id columns of SubjQA so we can filter by product and question ID, along with the corresponding training split. We can then loop through the examples in each DataFrame and add them to the index with the write_documents() method as follows:
+forsplit, dfindfs.items(): 
+	# Exclude duplicate reviews 
+	docs= [{"text": row["context"], 
+			"meta":{"item_id": row["title"], "question_id": row["id"], 				"split": split}} 
+		for_,rowindf.drop_duplicates(subset="context").iterrows()] 	document_store.write_documents(docs, index="document")
+print(f"Loaded {document_store.get_document_count()} documents")
+Loaded 1615 documents
+Great, we’ve loaded all our reviews into an index! To search the index we’ll need a retriever, so let’s look at how we can initialize one for Elasticsearch.
+Initializing a retriever
+The Elasticsearch document store can be paired with any of the Haystack retrievers, so let’s start by using a sparse retriever based on BM25 (short for “Best Match 25”). BM25 is an improved version of the classic Term Frequency-Inverse Document Fre‐quency (TF-IDF) algorithm and represents the question and context as sparse vectors that can be searched efficiently on Elasticsearch. The BM25 score measures how much matched text is about a search query and improves on TF-IDF by saturating TF values quickly and normalizing the document length so that short documents are favored over long ones.13
+13 For an in-depth explanation of document scoring with TF-IDF and BM25 see Chapter 23 of Speech and Lan‐	guage Processing, 3rd edition, by D. Jurafsky and J.H. Martin (Prentice Hall).
+In Haystack, the BM25 retriever is used by default in ElasticsearchRetriever, so let’s initialize this class by specifying the document store we wish to search over:
+fromhaystack.retriever.sparseimportElasticsearchRetriever
+es_retriever=ElasticsearchRetriever(document_store=document_store)
+Next, let’s look at a simple query for a single electronics product in the training set. For review-based QA systems like ours, it’s important to restrict the queries to a single item because otherwise the retriever would source reviews about products that are not related to a user’s query. For example, asking “Is the camera quality any good?”without a product filter could return reviews about phones, when the user might be asking about a specific laptop camera instead. By themselves, the ASIN values in our dataset are a bit cryptic, but we can decipher them with online tools like  or by simply appending the value of item_id to the www.amazon.com/d URL. ollowing item ID corresponds to one of Amazon’s Fire tablets, so let’s use the retriever’s retrieve() method to ask if it’s any good for reading with:
+item_id="B0074BW614" 
+query="Is it good for reading?" 
+retrieved_docs=es_retriever.retrieve( 
+	query=query, top_k=3, filters={"item_id":[item_id], "split":["train"]})
+Here we’ve specified how many documents to return with the top_k argument and applied a filter on both the item_id and split keys that were included in the meta field of our documents. Each element of retrieved_docs is a Haystack Document object that is used to represent documents and includes the retriever’s query score along with other metadata. Let’s have a look at one of the retrieved documents:
+print(retrieved_docs[0])
+{'text': 'This is a gift to myself.  I have been a kindle user for 4 years and this is my third one.  I never thought I would want a fire for I mainly use it for book reading.  I decided to try the fire for when I travel I take my laptop, my phone and my iPod classic.  I love my iPod but watching movies on the plane with it can be challenging because it is so small. Laptops battery life is not as good as the Kindle.  So the Fire combines for me what I needed all three to do. So far so good.', 'score': 6.243799, 'probability': 0.6857824513476455, 'question': None, 'meta': {'item_id': 'B0074BW614', 'question_id': 
+'868e311275e26dbafe5af70774a300f3', 'split': 'train'}, 'embedding': None, 'id': '252e83e25d52df7311d597dc89eef9f6'}
+In addition to the document’s text, we can see the score that Elasticsearch computed for its relevance to the query (larger scores imply a better match). Under the hood, Elasticsearch relies on  for indexing and search, so by default it uses Lucene’s practical scoring functiu can find the nitty-gritty details behind the scoring function in the , but in brief terms it first filters the can‐didate document (does the document match the query?),
+and then applies a similarity metric that’s based on representing both the document and the query as vectors.
+Now that we have a way to retrieve relevant documents, the next thing we need is a way to extract answers from them. This is where the reader comes in, so let’s take a look at how we can load our MiniLM model in Haystack.
+Initializing a reader
+In Haystack, there are two types of readers one can use to extract answers from a given context:
+FARMReader
+Based on deepset’s  for fine-tuning and deploying transform‐ers. Compatible witsing  Transformers and can load models directly from the Hugging Face Hub.
+TransformersReader
+Based on the QA pipeline from only.
+ Transformers. Suitable for running inference
+Although both readers handle a model’s weights in the same way, there are some dif‐ferences in the way the predictions are converted to produce answers:
+• In  Transformers, the QA pipeline normalizes the start and end logits with a softmax in each passage. This means that it is only meaningful to compare answer scores between answers extracted from the same passage, where the prob‐abilities sum to 1. For example, an answer score of 0.9 from one passage is not necessarily better than a score of 0.8 in another. In FARM, the logits are not nor‐malized, so inter-passage answers can be compared more easily.
+• The TransformersReader sometimes predicts the same answer twice, but with different scores. This can happen in long contexts if the answer lies across two overlapping windows. In FARM, these duplicates are removed.
+Since we will be fine-tuning the reader later in the chapter, we’ll use the FARMReader. As with  Transformers, to load the model we just need to specify the MiniLM checkpoint on the Hugging Face Hub along with some QA-specific arguments:
+fromhaystack.reader.farmimportFARMReader
+model_ckpt="deepset/minilm-uncased-squad2"
+max_seq_length, doc_stride=384, 128
+reader=FARMReader(model_name_or_path=model_ckpt, progress_bar=False,
+max_seq_len=max_seq_length, doc_stride=doc_stride,
+return_no_answer=True)
+In FARMReader, the behavior of the sliding window is controlled by the same max_seq_length and doc_stride arguments that we saw for the tokenizer. Here we’ve used the values from the MiniLM paper. To confirm, let’s now test the reader on our simple example from earlier:
+print(reader.predict_on_texts(question=question, texts=[context], top_k=1))
+{'query': 'How much music can this hold?', 'no_ans_gap': 12.648084878921509, 'answers': [{'answer': '6000 hours', 'score': 10.69961929321289, 'probability': 0.3988136053085327, 'context': 'An MP3 is about 1 MB/minute, so about 6000 hours depending on file size.', 'offset_start': 38, 'offset_end': 48, 
+'offset_start_in_doc': 38, 'offset_end_in_doc': 48, 'document_id': 
+'e344757014e804eff50faa3ecf1c9c75'}]}
+Great, the reader appears to be working as expected—so next, let’s tie together all our components using one of Haystack’s pipelines.
+Putting it all together
+Haystack provides a Pipeline abstraction that allows us to combine retrievers, read‐ers, and other components together as a graph that can be easily customized for each use case. There are also predefined pipelines analogous to those in  Transformers, but specialized for QA systems. In our case, we’re interested in extracting answers, so we’ll use the ExtractiveQAPipeline, which takes a single retriever-reader pair as its arguments:
+fromhaystack.pipelineimportExtractiveQAPipeline
+pipe=ExtractiveQAPipeline(reader, es_retriever)
+Each Pipeline has a run() method that specifies how the query flow should be exe‐cuted. For the ExtractiveQAPipeline we just need to pass the query, the number of documents to retrieve with top_k_retriever, and the number of answers to extract from these documents with top_k_reader. In our case, we also need to specify a filter over the item ID, which can be done using the filters argument as we did with the retriever earlier. Let’s run a simple example using our question about the Amazon Fire tablet again, but this time returning the extracted answers:
+n_answers=3 
+preds=pipe.run(query=query, top_k_retriever=3, top_k_reader=n_answers, filters={"item_id": [item_id], "split":["train"]})
+print(f"Question: {preds['query']}\n")
+foridxinrange(n_answers):
+print(f"Answer {idx+1}: {preds['answers'][idx]['answer']}")
+print(f"Review snippet: ...{preds['answers'][idx]['context']}...")
+print("\n\n")
+Question: Is it good for reading?
+Answer 1: I mainly use it for book reading
+Review snippet: ... is my third one.  I never thought I would want a fire for I
+mainly use it for book reading.  I decided to try the fire for when I travel I
+take my la...
+Answer 2: the larger screen compared to the Kindle makes for easier reading
+Review snippet: ...ght enough that I can hold it to read, but the larger screen
+compared to the Kindle makes for easier reading. I love the color, something I
+never thou...
+Answer 3: it is great for reading books when no light is available
+Review snippet: ...ecoming addicted to hers! Our son LOVES it and it is great
+for reading books when no light is available. Amazing sound but I suggest good
+headphones t...
+Great, we now have an end-to-end QA system for Amazon product reviews! This is a good start, but notice that the second and third answers are closer to what the ques‐tion is actually asking. To do better, we’ll need some metrics to quantify the perfor‐mance of the retriever and reader. We’ll take a look at that next.

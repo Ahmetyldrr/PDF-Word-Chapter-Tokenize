@@ -1,0 +1,29 @@
+The first encoder-only model based on the Transformer architecture was BERT. At the time it was published, it outperformed all the state-of-the-art models on the pop‐ular GLUE benchmark,7 which measures natural language understanding (NLU) across several tasks of varying difficulty. Subsequently, the pretraining objective and the architecture of BERT have been adapted to further improve performance. Encoder-only models still dominate research and industry on NLU tasks such as text
+classification, named entity recognition, and question answering. Let’s have a brief look at the BERT model and its variants:
+BERT 
+BERT is pretrained with the two objectives of predicting masked tokens in texts and determining if one text passage is likely to follow another.8 The former task is called masked language modeling (MLM) and the latter next sentence prediction (NSP).
+DistilBERT 
+Although BERT delivers great results, it’s size can make it tricky to deploy in environments where low latencies are required. By using a technique known as knowledge distillation during pretraining, DistilBERT achieves 97% of BERT’s performance while using 40% less memory and being 60% faster.9 You can find more details on knowledge distillation in Chapter 8.
+RoBERTa 
+A study following the release of BERT revealed that its performance can be fur‐ther improved by modifying the pretraining scheme. RoBERTa is trained longer, on larger batches with more training data, and it drops the NSP task.10 Together, these changes significantly improve its performance compared to the original BERT model.
+XLM 
+Several pretraining objectives for building multilingual models were explored in the work on the cross-lingual language model (XLM),11 including the autoregres‐sive language modeling from GPT-like models and MLM from BERT. In addi‐tion, the authors of the paper on XLM pretraining introduced translation language modeling (TLM), which is an extension of MLM to multiple language inputs. Experimenting with these pretraining tasks, they achieved state-of-the-art results on several multilingual NLU benchmarks as well as on translation tasks.
+XLM-RoBERTa 
+Following the work of XLM and RoBERTa, the XLM-RoBERTa or XLM-R model takes multilingual pretraining one step further by massively upscaling the training data.12 Using the , its developers created a dataset with 2.5 terabytes of texn encoder with MLM on this
+8 J. Devlin et al., , 	(2018).
+9 V. Sanh et al., , (2019).
+10 Y. Liu et al., , (2019).
+11 G. Lample, and A. Conneau, , (2019).
+12 A. Conneau et al., , (2019).
+dataset. Since the dataset only contains data without parallel texts (i.e., transla‐tions), the TLM objective of XLM was dropped. This approach beats XLM and multilingual BERT variants by a large margin, especially on low-resource languages.
+ALBERT 
+The ALBERT model introduced three changes to make the encoder architecture more efficient.13 First, it decouples the token embedding dimension from the hid‐den dimension, thus allowing the embedding dimension to be small and thereby saving parameters, especially when the vocabulary gets large. Second, all layers share the same parameters, which decreases the number of effective parameters even further. Finally, the NSP objective is replaced with a sentence-ordering pre‐diction: the model needs to predict whether or not the order of two consecutive sentences was swapped rather than predicting if they belong together at all. These changes make it possible to train even larger models with fewer parameters and reach superior performance on NLU tasks.
+ELECTRA 
+One limitation of the standard MLM pretraining objective is that at each training step only the representations of the masked tokens are updated, while the other input tokens are not. To address this issue, ELECTRA uses a two-model approach:14 the first model (which is typically small) works like a standard masked language model and predicts masked tokens. The second model, called the discriminator, is then tasked to predict which of the tokens in the first model’s output were originally masked. Therefore, the discriminator needs to make a binary classification for every token, which makes training 30 times more effi‐cient. For downstream tasks the discriminator is fine-tuned like a standard BERT model.
+DeBERTa 
+The DeBERTa model introduces two architectural changes.15 First, each token is represented as two vectors: one for the content, the other for relative position. By disentangling the tokens’ content from their relative positions, the self-attention layers can better model the dependency of nearby token pairs. On the other hand, the absolute position of a word is also important, especially for decoding. For this reason, an absolute position embedding is added just before the softmax layer of the token decoding head. DeBERTa is the first model (as an ensemble) to
+13 Z. Lan et al., , (2019).
+14 K. Clark et al., , (2020).
+15 P. He et al., , (2020).
+beat the human baseline on the SuperGLUE benchmark,16 a more difficult ver‐sion of GLUE consisting of several subtasks used to measure NLU performance.
+Now that we’ve highlighted some of the major encoder-only architectures, let’s take a look at the decoder-only models.

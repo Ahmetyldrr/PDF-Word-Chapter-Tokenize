@@ -1,0 +1,101 @@
+The first thing we’ll need for our QA system is to find a way to identify a potential answer as a span of text in a customer review. For example, if a we have a question like “Is it waterproof?” and the review passage is “This watch is waterproof at 30m depth”, then the model should output “waterproof at 30m”. To do this we’ll need to understand how to:
+• Frame the supervised learning problem.
+• Tokenize and encode text for QA tasks.
+• Deal with long passages that exceed a model’s maximum context size.
+Let’s start by taking a look at how to frame the problem.
+Span classification
+The most common way to extract answers from text is by framing the problem as a span classification task, where the start and end tokens of an answer span act as the labels that a model needs to predict. This process is illustrated in Figure 7-4.
+Figure 7-4. Te span classification head for QA tasks
+Since our training set is relatively small, with only 1,295 examples, a good strategy is to start with a language model that has already been fine-tuned on a large-scale QA dataset like SQuAD. In general, these models have strong reading comprehension capabilities and serve as a good baseline upon which to build a more accurate system. This is a somewhat different approach to that taken in previous chapters, where we
+typically started with a pretrained model and fine-tuned the task-specific head our‐selves. For example, in Chapter 2, we had to fine-tune the classification head because the number of classes was tied to the dataset at hand. For extractive QA, we can actually start with a fine-tuned model since the structure of the labels remains the same across datasets.
+You can find a list of extractive QA models by navigating to the and searching for “squad” on the Models tab (Figure 7-5).
+Figure 7-5. A selection of extractive QA models on the Hugging Face Hub
+As you can see, at the time of writing, there are more than 350 QA models to choose from—so which one should you pick? In general, the answer depends on various fac‐tors like whether your corpus is mono- or multilingual and the constraints of run‐ning the model in a production environment. Table 7-2 lists a few models that provide a good foundation to build on.
+Table 7-2. Baseline transformer models that are fine-tuned on SQuAD 2.0
+For the purposes of this chapter, we’ll use a fine-tuned MiniLM model since it is fast to train and will allow us to quickly iterate on the techniques that we’ll be exploring.8 As usual, the first thing we need is a tokenizer to encode our texts, so let’s take a look at how this works for QA tasks.
+Tokenizing text for QA
+To encode our texts, we’ll load the MiniLM model checkpoint from the  as usual:
+fromtransformersimportAutoTokenizer
+model_ckpt="deepset/minilm-uncased-squad2"
+tokenizer=AutoTokenizer.from_pretrained(model_ckpt)
+To see the model in action, let’s first try to extract an answer from a short passage of text. In extractive QA tasks, the inputs are provided as (question, context) pairs, so we pass them both to the tokenizer as follows:
+question="How much music can this hold?"
+context="""An MP3 is about 1 MB/minute, so about 6000 hours depending on \
+file size."""
+inputs=tokenizer(question, context, return_tensors="pt")
+Here we’ve returned PyTorch Tensor objects, since we’ll need them to run the for‐ward pass through the model. If we view the tokenized inputs as a table:
+we can see the familiar input_ids and attention_mask tensors, while the token_type_ids tensor indicates which part of the inputs corresponds to the ques‐tion and context (a 0 indicates a question token, a 1 indicates a context token).9
+To understand how the tokenizer formats the inputs for QA tasks, let’s decode the input_ids tensor:
+print(tokenizer.decode(inputs["input_ids"][0]))
+[CLS] how much music can this hold? [SEP] an mp3 is about 1 mb / minute, so about 6000 hours depending on file size. [SEP]
+We see that for each QA example, the inputs take the format:
+[CLS] question tokens [SEP] context tokens [SEP]
+where the location of the first [SEP] token is determined by the token_type_ids. Now that our text is tokenized, we just need to instantiate the model with a QA head and run the inputs through the forward pass:
+importtorch 
+fromtransformersimportAutoModelForQuestionAnswering
+model=AutoModelForQuestionAnswering.from_pretrained(model_ckpt)
+withtorch.no_grad(): 
+	outputs=model(**inputs) 
+print(outputs)
+QuestionAnsweringModelOutput(loss=None, start_logits=tensor([[-0.9862, -4.7750,	 -5.4025, -5.2378, -5.2863, -5.5117, -4.9819, -6.1880,
+	 -0.9862,  0.2596, -0.2144, -1.7136,  3.7806,  4.8561, -1.0546, -3.9097,	 -1.7374, -4.5944, -1.4278,  3.9949,  5.0390, -0.2018, -3.0193, -4.8549,	 -2.3107, -3.5110, -3.5713, -0.9862]]), end_logits=tensor([[-0.9623,	 -5.4733, -5.0326, -5.1639, -5.4278, -5.5151, -5.1749, -4.6233,
+	 -0.9623, -3.7855, -0.8715, -3.7745, -3.0161, -1.1780,  0.1758, -2.7365,		 4.8934,  0.3046, -3.1761, -3.2762,  0.8937,  5.6606, -0.3623, -4.9554,	 -3.2531, -0.0914,  1.6211, -0.9623]]), hidden_states=None, 
+attentions=None)
+Here we can see that we get a QuestionAnsweringModelOutput object as the output of the QA head. As illustrated in Figure 7-4, the QA head corresponds to a linear layer that takes the hidden states from the encoder and computes the logits for the start and end spans.10 This means that we treat QA as a form of token classification, similar to what we encountered for named entity recognition in Chapter 4. To convert the outputs into an answer span, we first need to get the logits for the start and end tokens:
+start_logits=outputs.start_logits 
+end_logits=outputs.end_logits
+If we compare the shapes of these logits to the input IDs:
+print(f"Input IDs shape: {inputs.input_ids.size()}") print(f"Start logits shape: {start_logits.size()}") print(f"End logits shape: {end_logits.size()}")
+10 See Chapter 2 for details on how these hidden states can be extracted.
+Input IDs shape: torch.Size([1, 28]) 
+Start logits shape: torch.Size([1, 28]) 
+End logits shape: torch.Size([1, 28])
+we see that there are two logits (a start and end) associated with each input token. As illustrated in Figure 7-6, larger, positive logits correspond to more likely candidates for the start and end tokens. In this example we can see that the model assigns the highest start token logits to the numbers “1” and “6000”, which makes sense since our question is asking about a quantity. Similarly, we see that the end tokens with the highest logits are “minute” and “hours”.
+Figure 7-6. Predicted logits for the start and end tokens; the token with the highest score is colored in orange
+To get the final answer, we can compute the argmax over the start and end token log‐its and then slice the span from the inputs. The following code performs these steps and decodes the result so we can print the resulting text:
+importtorch
+start_idx=torch.argmax(start_logits) 
+end_idx=torch.argmax(end_logits) +1 
+answer_span=inputs["input_ids"][0][start_idx:end_idx] answer=tokenizer.decode(answer_span) 
+print(f"Question: {question}") 
+print(f"Answer: {answer}")
+Question: How much music can this hold? 
+Answer: 6000 hours
+Great, it worked! In  Transformers, all of these preprocessing and postprocessing steps are conveniently wrapped in a dedicated pipeline. We can instantiate the pipe‐line by passing our tokenizer and fine-tuned model as follows:
+fromtransformersimportpipeline
+pipe=pipeline("question-answering", model=model, tokenizer=tokenizer) pipe(question=question, context=context, topk=3)
+[{'score': 0.26516005396842957,
+ 'start': 38,
+ 'end': 48,
+ 'answer': '6000 hours'},
+ {'score': 0.2208300083875656,
+ 'start': 16,
+ 'end': 48,
+ 'answer': '1 MB/minute, so about 6000 hours'}, {'score': 0.10253632068634033,
+ 'start': 16,
+ 'end': 27,
+ 'answer': '1 MB/minute'}]
+In addition to the answer, the pipeline also returns the model’s probability estimate in the score field (obtained by taking a softmax over the logits). This is handy when we want to compare multiple answers within a single context. We’ve also shown that we can have the model predict multiple answers by specifying the topk parameter. Some‐times, it is possible to have questions for which no answer is possible, like the empty answers.answer_start examples in SubjQA. In these cases the model will assign a high start and end score to the [CLS] token, and the pipeline maps this output to an empty string:
+pipe(question="Why is there no data?", context=context, handle_impossible_answer=True)
+{'score': 0.9068416357040405, 'start': 0, 'end': 0, 'answer': ''}
+Dealing with long passages
+One subtlety faced by reading comprehension models is that the context often con‐tains more tokens than the maximum sequence length of the model (which is usually a few hundred tokens at most). As illustrated in Figure 7-7, a decent portion of the SubjQA training set contains question-context pairs that won’t fit within MiniLM’s context size of 512 tokens.
+Figure 7-7. Distribution of tokens for each question-context pair in the SubjQA training set
+For other tasks, like text classification, we simply truncated long texts under the assumption that enough information was contained in the embedding of the [CLS] token to generate accurate predictions. For QA, however, this strategy is problematic because the answer to a question could lie near the end of the context and thus would be removed by truncation. As illustrated in Figure 7-8, the standard way to deal with this is to apply a sliding window across the inputs, where each window contains a pas‐sage of tokens that fit in the model’s context.
+Figure 7-8. How the sliding window creates multiple question-context pairs for long documents—the first bar corresponds to the question, while the second bar is the context captured in each window
+In  Transformers, we can set return_overflowing_tokens=True in the tokenizer to enable the sliding window. The size of the sliding window is controlled by the max_seq_length argument, and the size of the stride is controlled by doc_stride. Let’s grab the first example from our training set and define a small window to illus‐trate how this works:
+example=dfs["train"].iloc[0][["question", "context"]] 
+tokenized_example=tokenizer(example["question"], example["context"], 	return_overflowing_tokens=True, max_length=100, 	stride=25)
+In this case we now get a list of input_ids, one for each window. Let’s check the num‐ber of tokens we have in each window:
+foridx, windowinenumerate(tokenized_example["input_ids"]): 	print(f"Window #{idx} has {len(window)} tokens")
+Window #0 has 100 tokens 
+Window #1 has 88 tokens
+Finally, we can see where two windows overlap by decoding the inputs:
+forwindowintokenized_example["input_ids"]: 	print(f"{tokenizer.decode(window)}\n")
+[CLS] how is the bass? [SEP] i have had koss headphones in the past, pro 4aa and qz - 99. the koss portapro is portable and has great bass response. the work great with my android phone and can be " rolled up " to be carried in my motorcycle jacket or computer bag without getting crunched. they are very light and don't feel heavy or bear down on your ears even after listening to music with them on all day. the sound is [SEP]
+[CLS] how is the bass? [SEP] and don't feel heavy or bear down on your ears even
+after listening to music with them on all day. the sound is night and day better
+than any ear - bud could be and are almost as good as the pro 4aa. they are "
+open air " headphones so you cannot match the bass to the sealed types, but it
+comes close. for $ 32, you cannot go wrong. [SEP]
+Now that we have some intuition about how QA models can extract answers from text, let’s look at the other components we need to build an end-to-end QA pipeline.

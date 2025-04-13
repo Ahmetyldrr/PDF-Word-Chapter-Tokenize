@@ -1,0 +1,50 @@
+Positional embeddings are based on a simple, yet very effective idea: augment the token embeddings with a position-dependent pattern of values arranged in a vector. If the pattern is characteristic for each position, the attention heads and feed-forward layers in each stack can learn to incorporate positional information into their trans‐formations.
+There are several ways to achieve this, and one of the most popular approaches is to use a learnable pattern, especially when the pretraining dataset is sufficiently large. This works exactly the same way as the token embeddings, but using the position index instead of the token ID as input. With that approach, an efficient way of encod‐ing the positions of tokens is learned during pretraining.
+Let’s create a custom Embeddings module that combines a token embedding layer that projects the input_ids to a dense hidden state together with the positional embed‐ding that does the same for position_ids. The resulting embedding is simply the sum of both embeddings:
+classEmbeddings(nn.Module): 
+	def __init__(self, config): 
+		super().__init__() 
+		self.token_embeddings=nn.Embedding(config.vocab_size, 
+			config.hidden_size) 
+		self.position_embeddings=nn.Embedding(config.max_position_embeddings, 				config.hidden_size) 
+		self.layer_norm=nn.LayerNorm(config.hidden_size, eps=1e-12) 
+		self.dropout=nn.Dropout()
+defforward(self, input_ids): 
+# Create position IDs for input sequence 
+seq_length=input_ids.size(1) 
+position_ids=torch.arange(seq_length, dtype=torch.long).unsqueeze(0) # Create token and position embeddings 
+token_embeddings=self.token_embeddings(input_ids) 
+position_embeddings=self.position_embeddings(position_ids) 
+# Combine token and position embeddings 
+embeddings=token_embeddings+position_embeddings 
+embeddings=self.layer_norm(embeddings)
+4 In fancier terminology, the self-attention and feed-forward layers are said to be permutation equivariant—if 	the input is permuted then the corresponding output of the layer is permuted in exactly the same way.
+embeddings=self.dropout(embeddings)
+returnembeddings
+embedding_layer=Embeddings(config)
+embedding_layer(inputs.input_ids).size()
+torch.Size([1, 5, 768])
+We see that the embedding layer now creates a single, dense embedding for each token.
+While learnable position embeddings are easy to implement and widely used, there are some alternatives:
+Absolute positional representations 
+Transformer models can use static patterns consisting of modulated sine and cosine signals to encode the positions of the tokens. This works especially well when there are not large volumes of data available.
+Relative positional representations 
+Although absolute positions are important, one can argue that when computing an embedding, the surrounding tokens are most important. Relative positional representations follow that intuition and encode the relative positions between tokens. This cannot be set up by just introducing a new relative embedding layer at the beginning, since the relative embedding changes for each token depending on where from the sequence we are attending to it. Instead, the attention mecha‐nism itself is modified with additional terms that take the relative position between tokens into account. Models such as DeBERTa use such representations.5
+Let’s put all of this together now by building the full transformer encoder combining the embeddings with the encoder layers:
+classTransformerEncoder(nn.Module):
+def __init__(self, config):
+super().__init__()
+self.embeddings=Embeddings(config)
+self.layers=nn.ModuleList([TransformerEncoderLayer(config)
+for_inrange(config.num_hidden_layers)])
+defforward(self, x):
+x=self.embeddings(x)
+forlayerinself.layers:
+x=layer(x)
+returnx
+Let’s check the output shapes of the encoder:
+5 By combining the idea of absolute and relative positional representations, rotary position embeddings achieve 	excellent results on many tasks. GPT-Neo is an example of a model with rotary position embeddings.
+encoder=TransformerEncoder(config)
+encoder(inputs.input_ids).size()
+torch.Size([1, 5, 768])
+We can see that we get a hidden state for each token in the batch. This output format makes the architecture very flexible, and we can easily adapt it for various applica‐tions such as predicting missing tokens in masked language modeling or predicting the start and end position of an answer in question answering. In the following sec‐tion we’ll see how we can build a classifier like the one we used in Chapter 2.

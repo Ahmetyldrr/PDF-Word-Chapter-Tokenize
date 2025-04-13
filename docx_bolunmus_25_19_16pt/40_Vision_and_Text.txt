@@ -1,0 +1,33 @@
+Vision and text are another natural pair of modalities to combine since we frequently use language to communicate and reason about the contents of images and videos. In addition to the vision transformers, there have been several developments in the direction of combining visual and textual information. In this section we will look at four examples of models combining vision and text: VisualQA, LayoutLM, DALL·E, and CLIP.
+VQA
+In Chapter 7 we explored how we can use transformer models to extract answers to text-based questions. This can be done ad hoc to extract information from texts or offline, where the question answering model is used to extract structured information from a set of documents. There have been several efforts to expand this approach to vision with datasets such as VQA,16 shown in Figure 11-14.
+Figure 11-14. Example of a visual question answering task from the VQA dataset (cour‐tesy of Yash Goyal)
+Models such as LXMERT and VisualBERT use vision models like ResNets to extract features from the pictures and then use transformer encoders to combine them with the natural questions and predict an answer.17
+LayoutLM
+Analyzing scanned business documents like receipts, invoices, or reports is another area where extracting visual and layout information can be a useful way to recognize text fields of interest. Here the  family of models are the current state of the art. They use an enhanced Trarchitecture that receives three modalities as input: text, image, and layout. Accordingly, as shown in Figure 11-15, there are embed‐ding layers associated with each modality, a spatially aware self-attention mechanism, and a mix of image and text/image pretraining objectives to align the different modalities. By pretraining on millions of scanned documents, LayoutLM models are able to transfer to various downstream tasks in a manner similar to BERT for NLP.
+Figure 11-15. Te model architecture and pretraining strategies for LayoutLMv2 (courtesy of Yang Xu)
+DALL·E
+A model that combines vision and text for generative tasks is DALL·E.18 It uses the GPT architecture and autoregressive modeling to generate images from text. Inspired by iGPT, it regards the words and pixels as one sequence of tokens and is thus able to continue generating an image from a text prompt, as shown in Figure 11-16.
+Figure 11-16. Generation examples with DALL·E (courtesy of Aditya Ramesh)
+CLIP
+Finally, let’s have a look at CLIP,19 which also combines text and vision but is designed for supervised tasks. Its creators constructed a dataset with 400 million image/caption pairs and used contrastive learning to pretrain the model. The CLIP architecture con‐sists of a text and an image encoder (both transformers) that create embeddings of the captions and images. A batch of images with captions is sampled, and the contras‐tive objective is to maximize the similarity of the embeddings (as measured by the dot product) of the corresponding pair while minimizing the similarity of the rest, as illustrated in Figure 11-17.
+In order to use the pretrained model for classification the possible classes are embed‐ded with the text encoder, similar to how we used the zero-shot pipeline. Then the embeddings of all the classes are compared to the image embedding that we want to classify, and the class with the highest similarity is chosen.
+Figure 11-17. Architecture of CLIP (courtesy of Alec Radford)
+form suitable for the model, while the tokenizer is responsible for decoding the mod‐el’s predictions into text:
+fromtransformersimportCLIPProcessor, CLIPModel
+clip_ckpt="openai/clip-vit-base-patch32" 
+model=CLIPModel.from_pretrained(clip_ckpt) 
+processor=CLIPProcessor.from_pretrained(clip_ckpt)
+Then we need a fitting image to try it out. What would be better suited than a picture of Optimus Prime?
+image=Image.open("images/optimusprime.jpg") plt.imshow(image) 
+plt.axis("off") 
+plt.show()
+Next, we set up the texts to compare the image against and pass it through the model:
+importtorch
+texts= ["a photo of a transformer", "a photo of a robot", "a photo of agi"] inputs=processor(text=texts, images=image, return_tensors="pt", padding=True) withtorch.no_grad(): 
+	outputs=model(**inputs) 
+logits_per_image=outputs.logits_per_image 
+probs=logits_per_image.softmax(dim=1) 
+probs
+tensor([[0.9557, 0.0413, 0.0031]])
+Well, it almost got the right answer (a photo of AGI of course). Jokes aside, CLIP makes image classification very flexible by allowing us to define classes through text instead of having the classes hardcoded in the model architecture. This concludes our tour of multimodal transformer models, but we hope we’ve whetted your appetite.

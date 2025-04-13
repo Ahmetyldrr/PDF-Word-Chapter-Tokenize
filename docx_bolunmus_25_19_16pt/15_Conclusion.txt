@@ -1,0 +1,7 @@
+In this chapter we started at the heart of the Transformer architecture with a deep dive into self-attention, and we subsequently added all the necessary parts to build a
+24 M. Lewis et al., 	, (2019).
+25 A. Fan et al., , (2020).
+26 M. Zaheer et al., , (2020).
+transformer encoder model. We added embedding layers for tokens and positional information, we built in a feed-forward layer to complement the attention heads, and finally we added a classification head to the model body to make predictions. We also had a look at the decoder side of the Transformer architecture, and concluded the chapter with an overview of the most important model architectures.
+Now that you have a better understanding of the underlying principles, let’s go beyond simple classification and build a multilingual named entity recognition model.
+CHAPTER 7

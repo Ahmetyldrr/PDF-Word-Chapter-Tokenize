@@ -1,0 +1,26 @@
+As illustrated in Figure 3-7, the main difference between the decoder and encoder is that the decoder has two attention sublayers:
+Masked multi-head self-attention layer 
+Ensures that the tokens we generate at each timestep are only based on the past outputs and the current token being predicted. Without this, the decoder could cheat during training by simply copying the target translations; masking the inputs ensures the task is not trivial.
+Encoder-decoder attention layer 
+Performs multi-head attention over the output key and value vectors of the encoder stack, with the intermediate representations of the decoder acting as the queries.6 This way the encoder-decoder attention layer learns how to relate tokens from two different sequences, such as two different languages. The decoder has access to the encoder keys and values in each block.
+Let’s take a look at the modifications we need to make to include masking in our self-attention layer, and leave the implementation of the encoder-decoder attention layer as a homework problem. The trick with masked self-attention is to introduce a mask matrix with ones on the lower diagonal and zeros above:
+seq_len=inputs.input_ids.size(-1)
+mask=torch.tril(torch.ones(seq_len, seq_len)).unsqueeze(0)
+mask[0]
+tensor([[1., 0., 0., 0., 0.],
+ [1., 1., 0., 0., 0.],
+ [1., 1., 1., 0., 0.],
+ [1., 1., 1., 1., 0.],
+ [1., 1., 1., 1., 1.]])
+Here we’ve used PyTorch’s tril() function to create the lower triangular matrix. Once we have this mask matrix, we can prevent each attention head from peeking at future tokens by using Tensor.masked_fill() to replace all the zeros with negative infinity:
+scores.masked_fill(mask==0, -float("inf"))
+6 Note that unlike the self-attention layer, the key and query vectors in encoder-decoder attention can have dif‐ferent lengths. This is because the encoder and decoder inputs will generally involve sequences of differing length. As a result, the matrix of attention scores in this layer is rectangular, not square.
+tensor([[[26.8082,    -inf,    -inf,    -inf,    -inf],		 [-0.6981, 26.9043,    -inf,    -inf,    -inf],		 [-2.3190,  1.2928, 27.8710,    -inf,    -inf],		 [-0.5897,  0.3497, -0.3807, 27.5488,    -inf],		 [ 0.5275,  2.0493, -0.4869,  1.6100, 29.0893]]],	 grad_fn=<MaskedFillBackward0>)
+Figure 3-7. Zooming into the transformer decoder layer
+By setting the upper values to negative infinity, we guarantee that the attention weights are all zero once we take the softmax over the scores because e−∞= 0 (recall that softmax calculates the normalized exponential). We can easily include this mask‐ing behavior with a small change to our scaled dot-product attention function that we implemented earlier in this chapter:
+defscaled_dot_product_attention(query, key, value, mask=None): 	dim_k=query.size(-1) 
+	scores=torch.bmm(query, key.transpose(1, 2)) /sqrt(dim_k) 	ifmaskisnotNone: 
+		scores=scores.masked_fill(mask==0, float("-inf")) 	weights=F.softmax(scores, dim=-1) 
+	returnweights.bmm(value)
+From here it is a simple matter to build up the decoder layer; we point the reader to the excellent implementation of  by Andrej Karpathy for details.
+We’ve given you a lot of technical information here, but now you should have a good understanding of how every piece of the Transformer architecture works. Before we move on to building models for tasks more advanced than text classification, let’s round out the chapter by stepping back a bit and looking at the landscape of different transformer models and how they relate to each other.

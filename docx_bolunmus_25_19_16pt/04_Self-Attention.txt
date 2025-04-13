@@ -1,0 +1,111 @@
+As we discussed in Chapter 1, attention is a mechanism that allows neural networks to assign a different amount of weight or “attention” to each element in a sequence. For text sequences, the elements are token embeddings like the ones we encountered in Chapter 2, where each token is mapped to a vector of some fixed dimension. For example, in BERT each token is represented as a 768-dimensional vector. The “self”part of self-attention refers to the fact that these weights are computed for all hidden states in the same set—for example, all the hidden states of the encoder. By contrast, the attention mechanism associated with recurrent models involves computing the relevance of each encoder hidden state to the decoder hidden state at a given decod‐ing timestep.
+The main idea behind self-attention is that instead of using a fixed embedding for each token, we can use the whole sequence to compute a weighted average of each embedding. Another way to formulate this is to say that given a sequence of token embeddings x1, ..., xn, self-attention produces a sequence of new embeddings x1′, ..., xn′where each xi′ is a linear combination of all the xj:
+The coefficients wji are called attention weights and are normalized so that ∑jwji = 1. To see why averaging the token embeddings might be a good idea, consider what comes to mind when you see the word “flies”. You might think of annoying insects, but if you were given more context, like “time flies like an arrow”, then you would realize that “flies” refers to the verb instead. Similarly, we can create a representation for “flies” that incorporates this context by combining all the token embeddings in different proportions, perhaps by assigning a larger weight wji to the token embed‐dings for “time” and “arrow”. Embeddings that are generated in this way are called contextualized embeddings and predate the invention of transformers in language models like ELMo.2 A diagram of the process is shown in Figure 3-3, where we illus‐trate how, depending on the context, two different representations for “flies” can be generated via self-attention.
+2 M.E. Peters et al., , (2017).
+Figure 3-3. Diagram showing how self-attention updates raw token embeddings (upper) into contextualized embeddings (lower) to create representations that incorporate infor‐mation from the whole sequence
+Let’s now take a look at how we can calculate the attention weights.
+Scaled dot-product attention
+There are several ways to implement a self-attention layer, but the most common one is scaled dot-product attention, from the paper introducing the Transformer architec‐ture.3 There are four main steps required to implement this mechanism:
+1. Project each token embedding into three vectors called query, key, and value.
+2. Compute attention scores. We determine how much the query and key vectors relate to each other using a similarity function. As the name suggests, the similar‐ity function for scaled dot-product attention is the dot product, computed effi‐ciently using matrix multiplication of the embeddings. Queries and keys that are similar will have a large dot product, while those that don’t share much in com‐mon will have little to no overlap. The outputs from this step are called the atten‐tion scores, and for a sequence with n input tokens there is a corresponding n × n matrix of attention scores.
+3. Compute attention weights. Dot products can in general produce arbitrarily large numbers, which can destabilize the training process. To handle this, the attention scores are first multiplied by a scaling factor to normalize their variance and then normalized with a softmax to ensure all the column values sum to 1. The result‐ing n × n matrix now contains all the attention weights, wji.
+4. Update the token embeddings. Once the attention weights are computed, we multiply them by the value vector v1, ..., vn to obtain an updated representation for embedding xi′ = ∑jwjivj.
+We can visualize how the attention weights are calculated with a nifty library called . This library provides several functions that can be used to visual‐ts of attention in transformer models. To visualize the attention weights, we can use the neuron_view module, which traces the computation of the weights to show how the query and key vectors are combined to produce the final weight. Since BertViz needs to tap into the attention layers of the model, we’ll instan‐tiate our BERT checkpoint with the model class from BertViz and then use the show() function to generate the interactive visualization for a specific encoder layer and attention head. Note that you need to click the “+” on the left to activate the attention visualization:
+fromtransformersimportAutoTokenizer
+frombertviz.transformers_neuron_viewimportBertModel
+frombertviz.neuron_viewimportshow
+model_ckpt="bert-base-uncased"
+tokenizer=AutoTokenizer.from_pretrained(model_ckpt)
+model=BertModel.from_pretrained(model_ckpt)
+text="time flies like an arrow"
+show(model, "bert", tokenizer, text, display_mode="light", layer=0, head=8)
+From the visualization, we can see the values of the query and key vectors are repre‐sented as vertical bands, where the intensity of each band corresponds to the magni‐tude. The connecting lines are weighted according to the attention between the tokens, and we can see that the query vector for “flies” has the strongest overlap with the key vector for “arrow”.
+Let’s take a look at this process in more detail by implementing the diagram of opera‐tions to compute scaled dot-product attention, as shown in Figure 3-4.
+Figure 3-4. Operations in scaled dot-product attention
+We will use PyTorch to implement the Transformer architecture in this chapter, but the steps in TensorFlow are analogous. We provide a mapping between the most important functions in the two frameworks in Table 3-1.
+Table 3-1. PyTorch and TensorFlow (Keras) classes and methods used in this chapter
+The first thing we need to do is tokenize the text, so let’s use our tokenizer to extract the input IDs:
+inputs=tokenizer(text, return_tensors="pt", add_special_tokens=False)
+inputs.input_ids
+tensor([[ 2051, 10029,  2066,  2019,  8612]])
+As we saw in Chapter 2, each token in the sentence has been mapped to a unique ID in the tokenizer’s vocabulary. To keep things simple, we’ve also excluded the [CLS] and [SEP] tokens by setting add_special_tokens=False. Next, we need to create some dense embeddings. Dense in this context means that each entry in the embed‐dings contains a nonzero value. In contrast, the one-hot encodings we saw in Chapter 2 are sparse, since all entries except one are zero. In PyTorch, we can do this by using a torch.nn.Embedding layer that acts as a lookup table for each input ID:
+fromtorchimportnn
+fromtransformersimportAutoConfig
+config=AutoConfig.from_pretrained(model_ckpt)
+token_emb=nn.Embedding(config.vocab_size, config.hidden_size)
+token_emb
+Embedding(30522, 768)
+Here we’ve used the AutoConfig class to load the config.json file associated with the bert-base-uncased checkpoint. In  Transformers, every checkpoint is assigned a configuration file that specifies various hyperparameters like vocab_size and hidden_size, which in our example shows us that each input ID will be mapped to one of the 30,522 embedding vectors stored in nn.Embedding, each with a size of 768. The AutoConfig class also stores additional metadata, such as the label names, which are used to format the model’s predictions.
+Note that the token embeddings at this point are independent of their context. This means that homonyms (words that have the same spelling but different meaning), like “flies” in the previous example, have the same representation. The role of the sub‐sequent attention layers will be to mix these token embeddings to disambiguate and inform the representation of each token with the content of its context.
+Now that we have our lookup table, we can generate the embeddings by feeding in the input IDs:
+inputs_embeds=token_emb(inputs.input_ids)
+inputs_embeds.size()
+torch.Size([1, 5, 768])
+This has given us a tensor of shape [batch_size, seq_len, hidden_dim], just like we saw in Chapter 2. We’ll postpone the positional encodings, so the next step is to
+create the query, key, and value vectors and calculate the attention scores using the dot product as the similarity function:
+importtorch
+frommathimportsqrt
+query=key=value=inputs_embeds
+dim_k=key.size(-1)
+scores=torch.bmm(query, key.transpose(1,2)) /sqrt(dim_k)
+scores.size()
+torch.Size([1, 5, 5])
+This has created a 5 × 5 matrix of attention scores per sample in the batch. We’ll see later that the query, key, and value vectors are generated by applying independent weight matrices WQ, K, V to the embeddings, but for now we’ve kept them equal for simplicity. In scaled dot-product attention, the dot products are scaled by the size of the embedding vectors so that we don’t get too many large numbers during training that can cause the softmax we will apply next to saturate.
+Let’s apply the softmax now:
+importtorch.nn.functionalasF
+weights=F.softmax(scores, dim=-1)
+weights.sum(dim=-1)
+tensor([[1., 1., 1., 1., 1.]], grad_fn=<SumBackward1>)
+The final step is to multiply the attention weights by the values:
+attn_outputs=torch.bmm(weights, value)
+attn_outputs.shape
+torch.Size([1, 5, 768])
+And that’s it—we’ve gone through all the steps to implement a simplified form of self-attention! Notice that the whole process is just two matrix multiplications and a soft‐max, so you can think of “self-attention” as just a fancy form of averaging.
+Let’s wrap these steps into a function that we can use later:
+defscaled_dot_product_attention(query, key, value):
+dim_k=query.size(-1)
+scores=torch.bmm(query, key.transpose(1, 2)) /sqrt(dim_k)
+weights=F.softmax(scores, dim=-1)
+returntorch.bmm(weights, value)
+Our attention mechanism with equal query and key vectors will assign a very large score to identical words in the context, and in particular to the current word itself: the dot product of a query with itself is always 1. But in practice, the meaning of a word will be better informed by complementary words in the context than by identical words—for example, the meaning of “flies” is better defined by incorporating infor‐mation from “time” and “arrow” than by another mention of “flies”. How can we pro‐mote this behavior?
+Let’s allow the model to create a different set of vectors for the query, key, and value of a token by using three different linear projections to project our initial token vector into three different spaces.
+Multi-headed attention
+In our simple example, we only used the embeddings “as is” to compute the attention scores and weights, but that’s far from the whole story. In practice, the self-attention layer applies three independent linear transformations to each embedding to generate the query, key, and value vectors. These transformations project the embeddings and each projection carries its own set of learnable parameters, which allows the self-attention layer to focus on different semantic aspects of the sequence.
+It also turns out to be beneficial to have multiple sets of linear projections, each one representing a so-called attention head. The resulting multi-head attention layer is illustrated in Figure 3-5. But why do we need more than one attention head? The rea‐son is that the softmax of one head tends to focus on mostly one aspect of similarity. Having several heads allows the model to focus on several aspects at once. For instance, one head can focus on subject-verb interaction, whereas another finds nearby adjectives. Obviously we don’t handcraft these relations into the model, and they are fully learned from the data. If you are familiar with computer vision models you might see the resemblance to filters in convolutional neural networks, where one filter can be responsible for detecting faces and another one finds wheels of cars in images.
+Figure 3-5. Multi-head attention
+Let’s implement this layer by first coding up a single attention head:
+classAttentionHead(nn.Module): 
+	def __init__(self, embed_dim, head_dim): 		super().__init__() 
+		self.q=nn.Linear(embed_dim, head_dim) 		self.k=nn.Linear(embed_dim, head_dim) 		self.v=nn.Linear(embed_dim, head_dim)
+defforward(self, hidden_state): 
+	attn_outputs=scaled_dot_product_attention( 
+		self.q(hidden_state), self.k(hidden_state), self.v(hidden_state)) 	returnattn_outputs
+Here we’ve initialized three independent linear layers that apply matrix multiplication to the embedding vectors to produce tensors of shape [batch_size, seq_len, head_dim], where head_dim is the number of dimensions we are projecting into. Although head_dim does not have to be smaller than the number of embedding dimensions of the tokens (embed_dim), in practice it is chosen to be a multiple of embed_dim so that the computation across each head is constant. For example, BERT has 12 attention heads, so the dimension of each head is 768/12 = 64.
+Now that we have a single attention head, we can concatenate the outputs of each one to implement the full multi-head attention layer:
+classMultiHeadAttention(nn.Module): 
+	def __init__(self, config): 
+			super().__init__() 
+			embed_dim=config.hidden_size 
+			num_heads=config.num_attention_heads 
+			head_dim=embed_dim//num_heads 
+			self.heads=nn.ModuleList(
+			 [AttentionHead(embed_dim, head_dim) for_inrange(num_heads)]		 ) 
+			self.output_linear=nn.Linear(embed_dim, embed_dim)
+defforward(self, hidden_state): 
+x=torch.cat([h(hidden_state) forhinself.heads], dim=-1) x=self.output_linear(x) 
+returnx
+Notice that the concatenated output from the attention heads is also fed through a final linear layer to produce an output tensor of shape [batch_size, seq_len, hidden_dim] that is suitable for the feed-forward network downstream. To confirm, let’s see if the multi-head attention layer produces the expected shape of our inputs. We pass the configuration we loaded earlier from the pretrained BERT model when initializing the MultiHeadAttention module. This ensures that we use the same set‐tings as BERT:
+multihead_attn=MultiHeadAttention(config) attn_output=multihead_attn(inputs_embeds) attn_output.size()
+torch.Size([1, 5, 768])
+It works! To wrap up this section on attention, let’s use BertViz again to visualize the attention for two different uses of the word “flies”. Here we can use the head_view() function from BertViz by computing the attentions of a pretrained checkpoint and indicating where the sentence boundary lies:
+frombertvizimporthead_view 
+fromtransformersimportAutoModel
+model=AutoModel.from_pretrained(model_ckpt, output_attentions=True)
+sentence_a="time flies like an arrow" 
+sentence_b="fruit flies like a banana"
+viz_inputs=tokenizer(sentence_a, sentence_b, return_tensors='pt') attention=model(**viz_inputs).attentions 
+sentence_b_start= (viz_inputs.token_type_ids==0).sum(dim=1) tokens=tokenizer.convert_ids_to_tokens(viz_inputs.input_ids[0])
+head_view(attention, tokens, sentence_b_start, heads=[8])
+This visualization shows the attention weights as lines connecting the token whose embedding is getting updated (left) with every word that is being attended to (right). The intensity of the lines indicates the strength of the attention weights, with dark lines representing values close to 1, and faint lines representing values close to 0.
+In this example, the input consists of two sentences and the [CLS] and [SEP] tokens are the special tokens in BERT’s tokenizer that we encountered in Chapter 2. One thing we can see from the visualization is that the attention weights are strongest between words that belong to the same sentence, which suggests BERT can tell that it should attend to words in the same sentence. However, for the word “flies” we can see that BERT has identified “arrow” as important in the first sentence and “fruit” and“banana” in the second. These attention weights allow the model to distinguish the use of “flies” as a verb or noun, depending on the context in which it occurs!
+Now that we’ve covered attention, let’s take a look at implementing the missing piece of the encoder layer: position-wise feed-forward networks.

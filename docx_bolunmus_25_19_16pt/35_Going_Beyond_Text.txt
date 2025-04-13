@@ -1,0 +1,12 @@
+Using text to train language models has been the driving force behind the success of transformer language models, in combination with transfer learning. On the one hand, text is abundant and enables self-supervised training of large models. On the other hand, textual tasks such as classification and question answering are common,
+and developing effective strategies for them allows us to address a wide range of real-world problems.
+However, there are limits to this approach, including:
+Human reporting bias 
+The frequencies of events in text may not represent their true frequencies.9 A model solely trained on text from the internet might have a very distorted image of the world.
+Common sense 
+Common sense is a fundamental quality of human reasoning, but is rarely writ‐ten down. As such, language models trained on text might know many facts about the world, but lack basic common-sense reasoning.
+Facts 
+A probabilistic language model cannot store facts in a reliable way and can pro‐duce text that is factually wrong. Similarly, such models can detect named enti‐ties, but have no direct way to access information about them.
+Modality 
+Language models have no way to connect to other modalities that could address the previous points, such as audio or visual signals or tabular data.
+So, if we could solve the modality limitations we could potentially address some of the others as well. Recently there has been a lot of progress in pushing transformers to new modalities, and even building multimodal models. In this section we’ll high‐light a few of these advances.

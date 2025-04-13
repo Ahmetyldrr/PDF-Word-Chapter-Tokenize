@@ -1,0 +1,36 @@
+One interesting alternative to extracting answers as spans of text in a document is to generate them with a pretrained language model. This approach is often referred to as abstractive or generative QA and has the potential to produce better-phrased answers that synthesize evidence across multiple passages. Although less mature than extrac‐tive QA, this is a fast-moving field of research, so chances are that these approaches will be widely adopted in industry by the time you are reading this! In this section we’ll briefly touch on the current state of the art: retrieval-augmented generation (RAG).16
+RAG extends the classic retriever-reader architecture that we’ve seen in this chapter by swapping the reader for a generator and using DPR as the retriever. The generator is a pretrained sequence-to-sequence transformer like T5 or BART that receives latent vectors of documents from DPR and then iteratively generates an answer based on the query and these documents. Since DPR and the generator are differentiable, the whole process can be fine-tuned end-to-end as illustrated in Figure 7-13.
+Figure 7-13. Te RAG architecture for fine-tuning a retriever and generator end-to-end (courtesy of Ethan Perez)
+To show RAG in action we’ll use the DPRetriever from earlier, so we just need to instantiate a generator. There are two types of RAG models to choose from:
+RAG-Sequence 
+Uses the same retrieved document to generate the complete answer. In particular, the top k documents from the retriever are fed to the generator, which produces an output sequence for each document, and the result is marginalized to obtain the best answer.
+RAG-Token 
+Can use a different document to generate each token in the answer. This allows the generator to synthesize evidence from multiple documents.
+Since RAG-Token models tend to perform better than RAG-Sequence ones, we’ll use the token model that was fine-tuned on NQ as our generator. Instantiating a genera‐tor in Haystack is similar to instantiating the reader, but instead of specifying the max_seq_length and doc_stride parameters for a sliding window over the contexts, we specify hyperparameters that control the text generation:
+fromhaystack.generator.transformersimportRAGenerator
+generator=RAGenerator(model_name_or_path="facebook/rag-token-nq",
+embed_title=False, num_beams=5)
+Here num_beams specifies the number of beams to use in beam search (text generation is covered at length in Chapter 5). As we did with the DPR retriever, we don’t embed the document titles since our corpus is always filtered per product ID.
+The next thing to do is tie together the retriever and generator using Haystack’s GenerativeQAPipeline:
+fromhaystack.pipelineimportGenerativeQAPipeline
+pipe=GenerativeQAPipeline(generator=generator, retriever=dpr_retriever)
+Let’s now give RAG a spin by feeding in some queries about the Amazon Fire tablet from before. To simplify the querying, we’ll write a simple function that takes the query and prints out the top answers:
+defgenerate_answers(query, top_k_generator=3):
+preds=pipe.run(query=query, top_k_generator=top_k_generator,
+top_k_retriever=5, filters={"item_id":["B0074BW614"]})
+print(f"Question: {preds['query']}\n")
+foridxinrange(top_k_generator):
+print(f"Answer {idx+1}: {preds['answers'][idx]['answer']}")
+OK, now we’re ready to give it a test:
+generate_answers(query)
+Question: Is it good for reading?
+Answer 1:  the screen is absolutely beautiful
+Answer 2:  the Screen is absolutely beautiful
+Answer 3:  Kindle fire
+This result isn’t too bad for an answer, but it does suggest that the subjective nature of the question is confusing the generator. Let’s try with something a bit more factual:
+generate_answers("What is the main drawback?")
+Question: What is the main drawback?
+Answer 1:  the price
+Answer 2:  no flash support
+Answer 3:  the cost
+This is more sensible! To get better results we could fine-tune RAG end-to-end on SubjQA; we’ll leave this as an exercise, but if you’re interested in exploring it there are scripts in the  to help you get started.

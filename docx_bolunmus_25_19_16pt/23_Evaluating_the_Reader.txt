@@ -1,0 +1,45 @@
+In extractive QA, there are two main metrics that are used for evaluating readers:
+Exact Match (EM) 
+A binary metric that gives EM = 1 if the characters in the predicted and ground truth answers match exactly, and EM = 0 otherwise. If no answer is expected, the model gets EM = 0 if it predicts any text at all.
+F1-score 
+	Measures the harmonic mean of the precision and recall.
+Let’s see how these metrics work by importing some helper functions from FARM and applying them to a simple example:
+fromfarm.evaluation.squad_evaluationimportcompute_f1, compute_exact
+pred="about 6000 hours"
+label="6000 hours"
+print(f"EM: {compute_exact(label, pred)}")
+print(f"F1: {compute_f1(label, pred)}")
+EM: 0
+F1: 0.8
+Under the hood, these functions first normalize the prediction and label by removing punctuation, fixing whitespace, and converting to lowercase. The normalized strings are then tokenized as a bag-of-words, before finally computing the metric at the token level. From this simple example we can see that EM is a much stricter metric than the F1-score: adding a single token to the prediction gives an EM of zero. On the other hand, the F1-score can fail to catch truly incorrect answers. For example, if our predicted answer span is “about 6000 dollars”, then we get:
+pred="about 6000 dollars"
+print(f"EM: {compute_exact(label, pred)}")
+print(f"F1: {compute_f1(label, pred)}")
+EM: 0
+F1: 0.4
+Relying on just the F1-score is thus misleading, and tracking both metrics is a good strategy to balance the trade-off between underestimating (EM) and overestimating (F1-score) model performance.
+Now in general, there are multiple valid answers per question, so these metrics are calculated for each question-answer pair in the evaluation set, and the best score is selected over all possible answers. The overall EM and F1 scores for the model are then obtained by averaging over the individual scores of each question-answer pair.
+To evaluate the reader we’ll create a new pipeline with two nodes: a reader node and a node to evaluate the reader. We’ll use the EvalReader class that takes the predictions from the reader and computes the corresponding EM and F1 scores. To compare with the SQuAD evaluation, we’ll take the best answers for each query with the top_1_em and top_1_f1 metrics that are stored in EvalAnswers:
+fromhaystack.evalimportEvalAnswers
+defevaluate_reader(reader): 
+score_keys= ['top_1_em', 'top_1_f1'] 
+eval_reader=EvalAnswers(skip_incorrect_retrieval=False) 
+pipe=Pipeline() 
+pipe.add_node(component=reader, name="QAReader", inputs=["Query"]) 
+pipe.add_node(component=eval_reader, name="EvalReader", inputs=["QAReader"])
+forlinlabels_agg: 
+	doc=document_store.query(l.question, 
+		filters={"question_id":[l.origin]}) 	_=pipe.run(query=l.question, documents=doc, labels=l)
+return {k:vfork,vineval_reader.__dict__.items() ifkinscore_keys}
+reader_eval= {} 
+reader_eval["Fine-tune on SQuAD"] =evaluate_reader(reader)
+Notice that we specified skip_incorrect_retrieval=False. This is to ensure that the retriever always passes the context to the reader (as in the SQuAD evaluation).
+Now that we’ve run every question through the reader, let’s print the scores:
+defplot_reader_eval(reader_eval): 
+fig, ax=plt.subplots() 
+df=pd.DataFrame.from_dict(reader_eval) 
+df.plot(kind="bar", ylabel="Score", rot=0, ax=ax) ax.set_xticklabels(["EM", "F1"]) 
+plt.legend(loc='upper left') 
+plt.show()
+plot_reader_eval(reader_eval)
+OK, it seems that the fine-tuned model performs significantly worse on SubjQA than on SQuAD 2.0, where MiniLM achieves EM and F1 scores of 76.1 and 79.5, respec‐tively. One reason for the performance drop is that customer reviews are quite differ‐ent from the Wikipedia articles the SQuAD 2.0 dataset is generated from, and the language they use is often informal. Another factor is likely the inherent subjectivity of our dataset, where both questions and answers differ from the factual information contained in Wikipedia. Let’s look at how to fine-tune a model on a dataset to get bet‐ter results with domain adaptation.

@@ -1,0 +1,22 @@
+As we saw in Chapter 1, the original Transformer is based on the encoder-decoder architecture that is widely used for tasks like machine translation, where a sequence of words is translated from one language to another. This architecture consists of two components:
+Encoder 
+Converts an input sequence of tokens into a sequence of embedding vectors, often called the hidden state or context
+1
+Decoder 
+Uses the encoder’s hidden state to iteratively generate an output sequence of tokens, one token at a time
+As illustrated in Figure 3-1, the encoder and decoder are themselves composed of several building blocks.
+Figure 3-1. Encoder-decoder architecture of the transformer, with the encoder shown in the upper half of the figure and the decoder in the lower half
+We’ll look at each of the components in detail shortly, but we can already see a few things in Figure 3-1 that characterize the Transformer architecture:
+• The input text is tokenized and converted to token embeddings using the tech‐niques we encountered in Chapter 2. Since the attention mechanism is not aware of the relative positions of the tokens, we need a way to inject some information about token positions into the input to model the sequential nature of text. The token embeddings are thus combined with positional embeddings that contain positional information for each token.
+• The encoder is composed of a stack of encoder layers or “blocks,” which is analo‐gous to stacking convolutional layers in computer vision. The same is true of the decoder, which has its own stack of decoder layers.
+• The encoder’s output is fed to each decoder layer, and the decoder then generates a prediction for the most probable next token in the sequence. The output of this step is then fed back into the decoder to generate the next token, and so on until a special end-of-sequence (EOS) token is reached. In the example from Figure 3-1, imagine the decoder has already predicted “Die” and “Zeit”. Now it
+gets these two as an input as well as all the encoder’s outputs to predict the next token, “fliegt”. In the next step the decoder gets “fliegt” as an additional input. We repeat the process until the decoder predicts the EOS token or we reached a max‐imum length.
+The Transformer architecture was originally designed for sequence-to-sequence tasks like machine translation, but both the encoder and decoder blocks were soon adapted as standalone models. Although there are hundreds of different transformer models, most of them belong to one of three types:
+Encoder-only 
+These models convert an input sequence of text into a rich numerical representa‐tion that is well suited for tasks like text classification or named entity recogni‐tion. BERT and its variants, like RoBERTa and DistilBERT, belong to this class of architectures. The representation computed for a given token in this architecture depends both on the left (before the token) and the right (after the token) con‐texts. This is often called bidirectional attention.
+Decoder-only 
+Given a prompt of text like “Thanks for lunch, I had a…” these models will auto-complete the sequence by iteratively predicting the most probable next word. The family of GPT models belong to this class. The representation computed for a given token in this architecture depends only on the left context. This is often called causal or autoregressive attention.
+Encoder-decoder 
+These are used for modeling complex mappings from one sequence of text to another; they’re suitable for machine translation and summarization tasks. In addition to the Transformer architecture, which as we’ve seen combines an encoder and a decoder, the BART and T5 models belong to this class.
+Now that you have a high-level understanding of the Transformer architecture, let’s take a closer look at the inner workings of the encoder.
+1 Y. Liu and M. Lapata, , (2019).

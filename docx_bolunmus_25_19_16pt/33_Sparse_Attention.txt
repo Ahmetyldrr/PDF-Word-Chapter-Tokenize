@@ -1,0 +1,17 @@
+One way to reduce the number of computations that are performed in the self-attention layer is to simply limit the number of query-key pairs that are generated according to some predefined pattern. There have been many sparsity patterns explored in the literature, but most of them can be decomposed into a handful of“atomic” patterns illustrated in Figure 11-5.
+Figure 11-5. Common atomic sparse attention patterns for self-attention: a colored square means the attention score is calculated, while a blank square means the score is dis‐carded (courtesy of Tianyang Lin)
+We can describe these patterns as follows:7
+Global attention 
+Defines a few special tokens in the sequence that are allowed to attend to all other tokens
+Band attention 
+	Computes attention over a diagonal band
+Dilated attention 
+	Skips some query-key pairs by using a dilated window with gaps
+Random attention 
+	Randomly samples a few keys for each query to compute attention scores
+Block local attention 
+	Divides the sequence into blocks and restricts attention within these blocks
+In practice, most transformer models with sparse attention use a mix of the atomic sparsity patterns shown in Figure 11-5 to generate the final attention matrix. As illus‐trated in Figure 11-6, models like r use a mix of global and band attention, while  adds random attenmix. Introducing sparsity into the atten‐tion mnables these models to process much longer sequences; in the case of Longformer and BigBird the maximum sequence length is 4,096 tokens, which is 8 times larger than BERT!
+Figure 11-6. Sparse attention patterns for recent transformer models (courtesy of Tianyang Lin)
+It is also possible to learn the sparsity pattern in a data-driven man‐ner. The basic idea behind such approaches is to cluster the tokens into chunks. For example,  uses a hash function to cluster similar tokens together.
+Now that we’ve seen how sparsity can reduce the complexity of self-attention, let’s take a look at another popular approach based on changing the operations directly.

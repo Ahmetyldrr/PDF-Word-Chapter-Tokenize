@@ -1,0 +1,13 @@
+Although it has become common to build models using a single encoder or decoder stack, there are several encoder-decoder variants of the Transformer architecture that have novel applications across both NLU and NLG domains:
+20 J. Kaplan et al., , (2020).
+21 T. Brown et al., , (2020).
+22 S. Black et al., , (2021); B. 	Wang and A. Komatsuzaki, , (2021).
+23 C. Raffel et al., , (2019).
+them to text-to-text tasks. The largest model with 11 billion parameters yielded state-of-the-art results on several benchmarks.
+BART 
+BART combines the pretraining procedures of BERT and GPT within the encoder-decoder architecture.24 The input sequences undergo one of several pos‐sible transformations, from simple masking to sentence permutation, token dele‐tion, and document rotation. These modified inputs are passed through the encoder, and the decoder has to reconstruct the original texts. This makes the model more flexible as it is possible to use it for NLU as well as NLG tasks, and it achieves state-of-the-art-performance on both.
+M2M-100 
+Conventionally a translation model is built for one language pair and translation direction. Naturally, this does not scale to many languages, and in addition there might be shared knowledge between language pairs that could be leveraged for translation between rare languages. M2M-100 is the first translation model that can translate between any of 100 languages.25 This allows for high-quality transla‐tions between rare and underrepresented languages. The model uses prefix tokens (similar to the special [CLS] token) to indicate the source and target language.
+BigBird 
+One main limitation of transformer models is the maximum context size, due to the quadratic memory requirements of the attention mechanism. BigBird addresses this issue by using a sparse form of attention that scales linearly.26 This allows for the drastic scaling of contexts from 512 tokens in most BERT models to 4,096 in BigBird. This is especially useful in cases where long dependencies need to be conserved, such as in text summarization.
+Pretrained checkpoints of all models that we have seen in this section are available on the  and can be fine-tuned to your use case with  Transformers, as dvious chapter.

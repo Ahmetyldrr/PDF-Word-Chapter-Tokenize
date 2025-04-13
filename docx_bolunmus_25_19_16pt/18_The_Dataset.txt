@@ -1,0 +1,60 @@
+To build our QA system we’ll use the SubjQA dataset,2 which consists of more than 10,000 customer reviews in English about products and services in six domains: Trip‐Advisor, Restaurants, Movies, Books, Electronics, and Grocery. As illustrated in Figure 7-2, each review is associated with a question that can be answered using one or more sentences from the review.3
+Figure 7-2. A question about a product and the corresponding review (the answer span is underlined)
+The interesting aspect of this dataset is that most of the questions and answers are subjective; that is, they depend on the personal experience of the users. The example in Figure 7-2 shows why this feature makes the task potentially more difficult than
+finding answers to factual questions like “What is the currency of the United King‐dom?” First, the query is about “poor quality,” which is subjective and depends on the user’s definition of quality. Second, important parts of the query do not appear in the review at all, which means it cannot be answered with shortcuts like keyword search or paraphrasing the input question. These features make SubjQA a realistic dataset to benchmark our review-based QA models on, since user-generated content like that shown in Figure 7-2 resembles what we might encounter in the wild.
+To get started, let’s download the dataset from the . As we did in Chapter 4, we can use the get_dataset_config_names()ind out which subsets are available:
+fromdatasetsimportget_dataset_config_names
+domains=get_dataset_config_names("subjqa")
+domains
+['books', 'electronics', 'grocery', 'movies', 'restaurants', 'tripadvisor']
+For our use case, we’ll focus on building a QA system for the Electronics domain. To download the electronics subset, we just need to pass this value to the name argu‐ment of the load_dataset() function:
+fromdatasetsimportload_dataset
+subjqa=load_dataset("subjqa", name="electronics")
+Like other question answering datasets on the Hub, SubjQA stores the answers to each question as a nested dictionary. For example, if we inspect one of the rows in the answers column:
+print(subjqa["train"]["answers"][1])
+{'text': ['Bass is weak as expected', 'Bass is weak as expected, even with EQ
+adjusted up'], 'answer_start': [1302, 1302], 'answer_subj_level': [1, 1],
+'ans_subj_score': [0.5083333253860474, 0.5083333253860474], 'is_ans_subjective':
+[True, True]}
+we can see that the answers are stored in a text field, while the starting character indices are provided in answer_start. To explore the dataset more easily, we’ll flatten
+these nested columns with the flatten() method and convert each split to a Pandas DataFrame as follows:
+importpandasaspd
+dfs= {split: dset.to_pandas() forsplit, dsetinsubjqa.flatten().items()}
+forsplit, dfindfs.items(): 
+	print(f"Number of questions in {split}: {df['id'].nunique()}")
+Number of questions in train: 1295 
+Number of questions in test: 358 
+Number of questions in validation: 255
+Notice that the dataset is relatively small, with only 1,908 examples in total. This sim‐ulates a real-world scenario, since getting domain experts to label extractive QA data‐sets is labor-intensive and expensive. For example, the CUAD dataset for extractive QA on legal contracts is estimated to have a value of $2 million to account for the legal expertise needed to annotate its 13,000 examples!4
+There are quite a few columns in the SubjQA dataset, but the most interesting ones for building our QA system are shown in Table 7-1.
+Table 7-1. Column names and their descriptions from the SubjQA dataset
+answers.answer_start The start character index of the answer span
+Let’s focus on these columns and take a look at a few of the training examples. We can use the sample() method to select a random sample:
+qa_cols= ["title", "question", "answers.text", 
+	"answers.answer_start", "context"] 
+sample_df=dfs["train"][qa_cols].sample(2, random_state=7) sample_df
+4 D. Hendrycks et al., , (2021).
+From these examples we can make a few observations. First, the questions are not grammatically correct, which is quite common in the FAQ sections of ecommerce websites. Second, an empty answers.text entry denotes “unanswerable” questions whose answer cannot be found in the review. Finally, we can use the start index and length of the answer span to slice out the span of text in the review that corresponds to the answer:
+start_idx=sample_df["answers.answer_start"].iloc[0][0] 
+end_idx=start_idx+len(sample_df["answers.text"].iloc[0][0]) sample_df["context"].iloc[0][start_idx:end_idx]
+'this keyboard is compact'
+Next, let’s get a feel for what types of questions are in the training set by counting the questions that begin with a few common starting words:
+counts= {} 
+question_types= ["What", "How", "Is", "Does", "Do", "Was", "Where", "Why"]
+forqinquestion_types: 
+	counts[q] =dfs["train"]["question"].str.startswith(q).value_counts()[True]
+pd.Series(counts).sort_values().plot.barh() plt.title("Frequency of Question Types") plt.show()
+We can see that questions beginning with “How”, “What”, and “Is” are the most com‐mon ones, so let’s have a look at some examples:
+forquestion_typein ["How", "What", "Is"]: 
+	forquestionin ( 
+		dfs["train"][dfs["train"].question.str.startswith(question_type)] 		.sample(n=3, random_state=42)['question']): 
+		print(question)
+How is the camera?
+How do you like the control?
+How fast is the charger?
+What is direction?
+What is the quality of the construction of the bag? What is your impression of the product?
+Is this how zoom works?
+Is sound clear?
+Is it a wireless keyboard?
+Now that we’ve explored our dataset a bit, let’s dive into understanding how trans‐formers can extract answers from text.

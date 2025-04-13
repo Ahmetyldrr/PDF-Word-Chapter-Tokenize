@@ -1,0 +1,27 @@
+Vision has been the stronghold of convolutional neural networks (CNNs) since they kickstarted the deep learning revolution. More recently, transformers have begun to be applied to this domain and to achieve efficiency similar to or better than CNNs. Let’s have a look at a few examples.
+iGPT
+Inspired by the success of the GPT family of models with text, iGPT (short for image GPT) applies the same methods to images.10 By viewing images as sequences of pixels, iGPT uses the GPT architecture and autoregressive pretraining objective to predict
+9 J. Gordon and B. Van Durme, , (2013).
+10 M. Chen et al., “Generative Pretraining from Pixels,” Proceedings of the 37th International Conference on 	Machine Learning 119 (2020):1691–1703, .
+the next pixel values. Pretraining on large image datasets enables iGPT to “autocom‐plete” partial images, as displayed in Figure 11-8. It also achieves performant results on classification tasks when a classification head is added to the model.
+Figure 11-8. Examples of image completions with iGPT (courtesy of Mark Chen)
+ViT
+We saw that iGPT follows closely the GPT-style architecture and pretraining proce‐dure. Vision Transformer (ViT)11 is a BERT-style take on transformers for vision, as illustrated in Figure 11-9. First the image is split into smaller patches, and each of these patches is embedded with a linear projection. The results strongly resemble the token embeddings in BERT, and what follows is virtually identical. The patch embeddings are combined with position embeddings and then fed through an ordinary trans‐former encoder. During pretraining some of the patches are masked or distorted, and the objective is to predict the average color of the masked patch.
+Figure 11-9. Te ViT architecture (courtesy of Alexey Dosovitskiy et al.)
+Although this approach did not produce better results when pretrained on the stan‐dard ImageNet dataset, it scaled significantly better than CNNs on larger datasets.
+ViT is integrated in  Transformers, and using it is very similar to the NLP pipelines that we’ve used throughout this book. Let’s start by loading the image of a rather famous dog:
+fromPILimportImage 
+importmatplotlib.pyplotasplt
+image=Image.open("images/doge.jpg") 
+plt.imshow(image) 
+plt.axis("off") 
+plt.show()
+To load a ViT model, we just need to specify the image-classification pipeline, and then we feed in the image to extract the predicted classes:
+importpandasaspd
+fromtransformersimportpipeline
+image_classifier=pipeline("image-classification")
+preds=image_classifier(image)
+preds_df=pd.DataFrame(preds)
+preds_df
+Great, the predicted class seems to match the image!
+A natural extension of image models is video models. In addition to the spatial dimensions, videos come with a temporal dimension. This makes the task more chal‐lenging as the volume of data gets much bigger and one needs to deal with the extra dimension. Models such as TimeSformer introduce a spatial and temporal attention mechanism to account for both.12 In the future, such models can help build tools for a wide range of tasks such as classification or annotation of video sequences.

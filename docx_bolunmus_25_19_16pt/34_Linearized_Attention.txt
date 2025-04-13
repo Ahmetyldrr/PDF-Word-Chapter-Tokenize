@@ -1,0 +1,7 @@
+An alternative way to make self-attention more efficient is to change the order of operations that are involved in computing the attention scores. Recall that to compute the self-attention scores of the queries and keys we need a similarity function, which for the transformer is just a simple dot product. However, for a general similarity
+function sim qi, kj  we can express the attention outputs as the following equation:
+The trick behind linearized attention mechanisms is to express the similarity function as a kernel function that decomposes the operation into two pieces:
+sim Qj, K j = φ Qi Tφ K j
+where φ is typically a high-dimensional feature map. Since φ Qi  is independent of j and k, we can pull it under the sums to write the attention outputs as follows:
+Figure 11-7. Complexity difference between standard self-attention and linearized self-attention (courtesy of Tianyang Lin)
+In this section we’ve seen how Transformer architectures in general and attention in particular can be scaled up to achieve even better performance on a wide range of tasks. In the next section we’ll have a look at how transformers are branching out of NLP into other domains such as audio and computer vision.

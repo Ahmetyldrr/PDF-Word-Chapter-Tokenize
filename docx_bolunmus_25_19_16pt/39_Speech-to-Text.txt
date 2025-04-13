@@ -1,0 +1,35 @@
+Although being able to use text to interface with a computer is a huge step forward, using spoken language is an even more natural way for us to communicate. You can see this trend in industry, where applications such as Siri and Alexa are on the rise and becoming progressively more useful. Also, for a large fraction of the population, writing and reading are more challenging than speaking. So, being able to process and understand audio is not only convenient, but can help many people access more information. A common task in this domain is automatic speech recognition (ASR),
+which converts spoken words to text and enables voice technologies like Siri to answer questions like “What is the weather like today?”
+Figure 11-12. Architecture of wav2vec 2.0 (courtesy of Alexei Baevski)
+The wav2vec 2.0 models are integrated in  Transformers, and you won’t be sur‐prised to learn that loading and using them follows the familiar steps that we have seen throughout this book. Let’s load a pretrained model that was trained on 960 hours of speech audio:
+asr=pipeline("automatic-speech-recognition")
+To apply this model to some audio files we’ll use the ASR subset of the , which is the same dataset the model was pretrained on. Since the ge, we’ll just load one example for our demo purposes:
+fromdatasetsimportload_dataset
+ds=load_dataset("superb", "asr", split="validation[:1]")
+print(ds[0])
+{'chapter_id': 128104, 'speaker_id': 1272, 'file': '~/.cache/huggingf
+ace/datasets/downloads/extracted/e4e70a454363bec1c1a8ce336139866a39442114d86a433
+14 A. Baevski et al., “wav2vec 2.0: A Framework for Self-Supervised Learning of Speech Representations”, (2020).
+6014acd4b1ed55e55/LibriSpeech/dev-clean/1272/128104/1272-128104-0000.flac',
+'id': '1272-128104-0000', 'text': 'MISTER QUILTER IS THE APOSTLE OF THE MIDDLE
+CLASSES AND WE ARE GLAD TO WELCOME HIS GOSPEL'}
+Here we can see that the audio in the file column is stored in the FLAC coding for‐mat, while the expected transcription is given by the text column. To convert the audio to an array of floats, we can use the  to read each file in our dataset with map():
+importsoundfileassf
+defmap_to_array(batch):
+speech, _=sf.read(batch["file"])
+batch["speech"] =speech
+returnbatch
+ds=ds.map(map_to_array)
+If you are using a Jupyter notebook you can easily play the sound files with the fol‐lowing IPython widgets:
+fromIPython.displayimportAudio
+display(Audio(ds[0]['speech'], rate=16000))
+Finally, we can pass the inputs to the pipeline and inspect the prediction:
+pred=asr(ds[0]["speech"])
+print(pred)
+{'text': 'MISTER QUILTER IS THE APOSTLE OF THE MIDDLE CLASSES AND WE ARE GLAD TO
+WELCOME HIS GOSPEL'}
+This transcription seems to be correct. We can see that some punctuation is missing, but this is hard to get from audio alone and could be added in a postprocessing step. With only a handful of lines of code we can build ourselves a state-of-the-art speech-to-text application!
+Building a model for a new language still requires a minimum amount of labeled data, which can be challenging to obtain, especially for low-resource languages. Soon after the release of wav2vec 2.0, a paper describing a method named wav2vec-U was published.15 In this work, a combination of clever clustering and GAN training is used to build a speech-to-text model using only independent unlabeled speech and unlabeled text data. This process is visualized in detail in Figure 11-13. No aligned speech and text data is required at all, which enables the training of highly perform‐ant speech-to-text models for a much larger spectrum of languages.
+15 A. Baevski et al., , (2021).
+Figure 11-13. Training scheme for wav2vec-U (courtesy of Alexsei Baevski)
+Great, so transformers can now “read” text and “hear” audio—can they also “see”? The answer is yes, and this is one of the current hot research frontiers in the field.

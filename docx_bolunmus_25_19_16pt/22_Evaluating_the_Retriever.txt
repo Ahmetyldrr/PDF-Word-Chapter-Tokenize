@@ -1,0 +1,111 @@
+A common metric for evaluating retrievers is recall, which measures the fraction of all relevant documents that are retrieved. In this context, “relevant” simply means whether the answer is present in a passage of text or not, so given a set of questions, we can compute recall by counting the number of times an answer appears in the top k documents returned by the retriever.
+In Haystack, there are two ways to evaluate retrievers:
+• Use the retriever’s in-built eval() method. This can be used for both open- and closed-domain QA, but not for datasets like SubjQA where each document is paired with a single product and we need to filter by product ID for every query.
+• Build a custom Pipeline that combines a retriever with the EvalRetriever class. This enables the implementation of custom metrics and query flows.
+Since we need to evaluate the recall per product and then aggregate across all prod‐ucts, we’ll opt for the second approach. Each node in the Pipeline graph represents a class that takes some inputs and produces some outputs via a run() method:
+classPipelineNode: 
+	def __init__(self): 
+		self.outgoing_edges=1
+defrun(self, **kwargs): 
+	...
+return (outputs, "outgoing_edge_name")
+Here kwargs corresponds to the outputs from the previous node in the graph, which is manipulated within the run() method to return a tuple of the outputs for the next node, along with a name for the outgoing edge. The only other requirement is to include an outgoing_edges attribute that indicates the number of outputs from the node (in most cases outgoing_edges=1, unless you have branches in the pipeline that route the inputs according to some criterion).
+In our case, we need a node to evaluate the retriever, so we’ll use the EvalRetriever class whose run() method keeps track of which documents have answers that match the ground truth. With this class we can then build up a Pipeline graph by adding the evaluation node after a node that represents the retriever itself:
+fromhaystack.pipelineimportPipeline 
+fromhaystack.evalimportEvalDocuments
+classEvalRetrieverPipeline: 
+	def __init__(self, retriever): 
+		self.retriever=retriever 
+		self.eval_retriever=EvalDocuments() 
+		pipe=Pipeline() 
+		pipe.add_node(component=self.retriever, name="ESRetriever",
+	inputs=["Query"]) 
+pipe.add_node(component=self.eval_retriever, name="EvalRetriever", 	inputs=["ESRetriever"]) 
+self.pipeline=pipe
+pipe=EvalRetrieverPipeline(es_retriever)
+Notice that each node is given a name and a list of inputs. In most cases, each node has a single outgoing edge, so we just need to include the name of the previous node in inputs.
+Now that we have our evaluation pipeline, we need to pass some queries and their corresponding answers. To do this, we’ll add the answers to a dedicated label index on our document store. Haystack provides a Label object that represents the answer spans and their metadata in a standardized fashion. To populate the label index, we’ll first create a list of Label objects by looping over each question in the test set and extracting the matching answers and additional metadata:
+fromhaystackimportLabel
+labels= [] 
+fori, rowindfs["test"].iterrows(): 
+	# Metadata used for filtering in the Retriever 
+	meta= {"item_id": row["title"], "question_id": row["id"]} 
+	# Populate labels for questions with answers 
+	iflen(row["answers.text"]): 
+		foranswerinrow["answers.text"]: 
+			label=Label( 
+				question=row["question"], answer=answer, id=i, origin=row["id"], 				meta=meta, is_correct_answer=True, is_correct_document=True, 				no_answer=False) 
+			labels.append(label) 
+	# Populate labels for questions without answers 
+	else: 
+		label=Label( 
+			question=row["question"], answer="", id=i, origin=row["id"], 			meta=meta, is_correct_answer=True, is_correct_document=True, 			no_answer=True) 
+		labels.append(label)
+If we peek at one of these labels:
+print(labels[0])
+{'id': 'e28f5e62-85e8-41b2-8a34-fbff63b7a466', 'created_at': None, 'updated_at': None, 'question': 'What is the tonal balance of these headphones?', 'answer': 'I have been a headphone fanatic for thirty years', 'is_correct_answer': True, 'is_correct_document': True, 'origin': 'd0781d13200014aa25860e44da9d5ea7', 'document_id': None, 'offset_start_in_doc': None, 'no_answer': False, 
+'model_id': None, 'meta': {'item_id': 'B00001WRSJ', 'question_id': 
+'d0781d13200014aa25860e44da9d5ea7'}}
+we can see the question-answer pair, along with an origin field that contains the unique question ID so we can filter the document store per question. We’ve also added the product ID to the meta field so we can filter the labels by product. Now that we have our labels, we can write them to the label index on Elasticsearch as follows:
+document_store.write_labels(labels, index="label") 
+print(f"""Loaded {document_store.get_label_count(index="label")}\ question-answer pairs""")
+Loaded 358 question-answer pairs
+Next, we need to build up a mapping between our question IDs and corresponding answers that we can pass to the pipeline. To get all the labels, we can use the get_all_labels_aggregated() method from the document store that will aggregate all question-answer pairs associated with a unique ID. This method returns a list of MultiLabel objects, but in our case we only get one element since we’re filtering by question ID. We can build up a list of aggregated labels as follows:
+labels_agg=document_store.get_all_labels_aggregated( 	index="label", 
+	open_domain=True, 
+	aggregate_by_meta=["item_id"] 
+) 
+print(len(labels_agg))
+330
+By peeking at one of these labels we can see that all the answers associated with a given question are aggregated together in a multiple_answers field:
+print(labels_agg[109])
+{'question': 'How does the fan work?', 'multiple_answers': ['the fan is really really good', "the fan itself isn't super loud. There is an adjustable dial to change fan speed"], 'is_correct_answer': True, 'is_correct_document': True, 'origin': '5a9b7616541f700f103d21f8ad41bc4b', 'multiple_document_ids': [None, None], 'multiple_offset_start_in_docs': [None, None], 'no_answer': False, 'model_id': None, 'meta': {'item_id': 'B002MU1ZRS'}}
+We now have all the ingredients for evaluating the retriever, so let’s define a function that feeds each question-answer pair associated with each product to the evaluation pipeline and tracks the correct retrievals in our pipe object:
+defrun_pipeline(pipeline, top_k_retriever=10, top_k_reader=4): 
+	forlinlabels_agg: 
+		_=pipeline.pipeline.run( 
+			query=l.question, 
+			top_k_retriever=top_k_retriever, 
+			top_k_reader=top_k_reader, 
+			top_k_eval_documents=top_k_retriever, 
+			labels=l, 
+			filters={"item_id": [l.meta["item_id"]], "split": ["test"]})
+run_pipeline(pipe, top_k_retriever=3) 
+print(f"Recall@3: {pipe.eval_retriever.recall:.2f}")
+Recall@3: 0.95
+Great, it works! Notice that we picked a specific value for top_k_retriever to specify the number of documents to retrieve. In general, increasing this parameter will improve the recall, but at the expense of providing more documents to the reader and slowing down the end-to-end pipeline. To guide our decision on which value to pick, we’ll create a function that loops over several k values and compute the recall across the whole test set for each k:
+defevaluate_retriever(retriever, topk_values= [1,3,5,10,20]): 	topk_results= {}
+fortopkintopk_values: 
+# Create Pipeline 
+p=EvalRetrieverPipeline(retriever) 
+# Loop over each question-answers pair in test set run_pipeline(p, top_k_retriever=topk) 
+# Get metrics 
+topk_results[topk] = {"recall": p.eval_retriever.recall}
+returnpd.DataFrame.from_dict(topk_results, orient="index")
+es_topk_df=evaluate_retriever(es_retriever)
+If we plot the results, we can see how the recall improves as we increase k:
+defplot_retriever_eval(dfs, retriever_names): 
+	fig, ax=plt.subplots() 
+	fordf, retriever_nameinzip(dfs, retriever_names): 		df.plot(y="recall", ax=ax, label=retriever_name) 	plt.xticks(df.index) 
+	plt.ylabel("Top-k Recall") 
+	plt.xlabel("k") 
+	plt.show()
+plot_retriever_eval([es_topk_df], ["BM25"])
+From the plot, we can see that there’s an inflection point around k = 5 and we get almost perfect recall from k = 10 onwards. Let’s now take a look at retrieving docu‐ments with dense vector techniques.
+Dense Passage Retrieval
+We’ve seen that we get almost perfect recall when our sparse retriever returns k = 10 documents, but can we do better at smaller values of k? The advantage of doing so is that we can pass fewer documents to the reader and thereby reduce the overall latency of our QA pipeline. A well-known limitation of sparse retrievers like BM25 is that they can fail to capture the relevant documents if the user query contains terms that don’t match exactly those of the review. One promising alternative is to use dense embeddings to represent the question and document, and the current state of the art is an architecture known as Dense Passage Retrieval (DPR).14 The main idea behind DPR is to use two BERT models as encoders for the question and the passage. As illustrated in Figure 7-10, these encoders map the input text into a d-dimensional vector representation of the [CLS] token.
+14 V. Karpukhin et al., , (2020).
+Figure 7-10. DPR’s bi-encoder architecture for computing the relevance of a document and query
+In Haystack, we can initialize a retriever for DPR in a similar way to what we did for BM25. In addition to specifying the document store, we also need to pick the BERT encoders for the question and passage. These encoders are trained by giving them questions with relevant (positive) passages and irrelevant (negative) passages, where the goal is to learn that relevant question-passage pairs have a higher similarity. For our use case, we’ll use encoders that have been fine-tuned on the NQ corpus in this way:
+fromhaystack.retriever.denseimportDensePassageRetriever
+dpr_retriever=DensePassageRetriever(document_store=document_store,
+query_embedding_model="facebook/dpr-question_encoder-single-nq-base",
+passage_embedding_model="facebook/dpr-ctx_encoder-single-nq-base",
+embed_title=False)
+Here we’ve also set embed_title=False since concatenating the document’s title (i.e., item_id) doesn’t provide any additional information because we filter per product. Once we’ve initialized the dense retriever, the next step is to iterate over all the indexed documents in our Elasticsearch index and apply the encoders to update the embedding representation. This can be done as follows:
+document_store.update_embeddings(retriever=dpr_retriever)
+We’re now set to go! We can evaluate the dense retriever in the same way we did for BM25 and compare the top-k recall:
+dpr_topk_df=evaluate_retriever(dpr_retriever)
+plot_retriever_eval([es_topk_df, dpr_topk_df], ["BM25", "DPR"])
+Here we can see that DPR does not provide a boost in recall over BM25 and saturates around k = 3.
+Now that we’ve explored the evaluation of the retriever, let’s turn to evaluating the reader.

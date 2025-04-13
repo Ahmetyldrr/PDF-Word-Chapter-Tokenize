@@ -1,0 +1,3 @@
+Over time, each of the three main architectures has undergone an evolution of its own. This is illustrated in Figure 3-8, which shows a few of the most prominent mod‐els and their descendants.
+Figure 3-8. An overview of some of the most prominent transformer architectures
+With over 50 different architectures included in  Transformers, this family tree by no means provides a complete overview of all the ones that exist: it simply highlights a few of the architectural milestones. We’ve covered the original Transformer archi‐tecture in depth in this chapter, so let’s take a closer look at some of the key descend‐ants, starting with the encoder branch.

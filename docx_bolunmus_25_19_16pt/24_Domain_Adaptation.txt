@@ -1,0 +1,71 @@
+Although models that are fine-tuned on SQuAD will often generalize well to other domains, we’ve seen that for SubjQA the EM and F1 scores of our model were much worse than for SQuAD. This failure to generalize has also been observed in other extractive QA datasets and is understood as evidence that transformer models are particularly adept at overfitting to SQuAD.15 The most straightforward way to improve the reader is by fine-tuning our MiniLM model further on the SubjQA train‐ing set. The FARMReader has a train() method that is designed for this purpose and expects the data to be in SQuAD JSON format, where all the question-answer pairs are grouped together for each item as illustrated in Figure 7-11.
+15 D. Yogatama et al., , (2019).
+Figure 7-11. Visualization of the SQuAD JSON format
+This is quite a complex data format, so we’ll need a few functions and some Pandas magic to help us do the conversion. The first thing we need to do is implement a function that can create the paragraphs array associated with each product ID. Each element in this array contains a single context (i.e., review) and a qas array of question-answer pairs. Here’s a function that builds up the paragraphs array:
+defcreate_paragraphs(df): 
+	paragraphs= [] 
+	id2context=dict(zip(df["review_id"], df["context"])) 
+	forreview_id, reviewinid2context.items(): 
+		qas= [] 
+		# Filter for all question-answer pairs about a specific context 		review_df=df.query(f"review_id == '{review_id}'") 
+		id2question=dict(zip(review_df["id"], review_df["question"])) 		# Build up the qas array
+	forqid, questioninid2question.items(): 
+		# Filter for a single question ID 
+		question_df=df.query(f"id == '{qid}'").to_dict(orient="list") 		ans_start_idxs=question_df["answers.answer_start"][0].tolist() 		ans_text=question_df["answers.text"][0].tolist() 
+		# Fill answerable questions 
+		iflen(ans_start_idxs): 
+			answers= [
+				 {"text": text, "answer_start": answer_start} 
+					fortext, answer_startinzip(ans_text, ans_start_idxs)] 			is_impossible=False 
+		else: 
+			answers= [] 
+			is_impossible=True 
+		# Add question-answer pairs to qas 
+		qas.append({"question": question, "id": qid, 
+						"is_impossible": is_impossible, "answers": answers}) 	# Add context and question-answer pairs to paragraphs 
+	paragraphs.append({"qas": qas, "context": review}) 
+returnparagraphs
+Now, when we apply to the rows of a DataFrame associated with a single product ID, we get the SQuAD format:
+product=dfs["train"].query("title == 'B00001P4ZH'") create_paragraphs(product)
+[{'qas': [{'question': 'How is the bass?', 
+		'id': '2543d296da9766d8d17d040ecc781699', 
+		'is_impossible': True, 
+		'answers': []}], 
+	'context': 'I have had Koss headphones ...', 
+		'id': 'd476830bf9282e2b9033e2bb44bbb995', 
+		'is_impossible': False, 
+		'answers': [{'text': 'Bass is weak as expected', 'answer_start': 1302},		 {'text': 'Bass is weak as expected, even with EQ adjusted up', 
+			'answer_start': 1302}]}], 
+	'context': 'To anyone who hasn\'t tried all ...'},
+ {'qas': [{'question': 'How is the bass?', 
+		'id': '455575557886d6dfeea5aa19577e5de4', 
+		'is_impossible': False, 
+		'answers': [{'text': 'The only fault in the sound is the bass', 
+			'answer_start': 650}]}], 
+	'context': "I have had many sub-$100 headphones ..."}]
+The final step is to then apply this function to each product ID in the DataFrame of each split. The following convert_to_squad() function does this trick and stores the result in an electronics-{split}.json file:
+importjson
+defconvert_to_squad(dfs): 
+	forsplit, dfindfs.items():
+subjqa_data= {} 
+# Create `paragraphs` for each product ID 
+groups= (df.groupby("title").apply(create_paragraphs) 
+	.to_frame(name="paragraphs").reset_index()) 
+subjqa_data["data"] =groups.to_dict(orient="records") 
+# Save the result to disk 
+withopen(f"electronics-{split}.json", "w+", encoding="utf-8") asf: 	json.dump(subjqa_data, f)
+convert_to_squad(dfs)
+Now that we have the splits in the right format, let’s fine-tune our reader by specify‐ing the locations of the train and dev splits, along with where to save the fine-tuned model:
+train_filename="electronics-train.json" dev_filename="electronics-validation.json"
+reader.train(data_dir=".", use_gpu=True, n_epochs=1, batch_size=16, train_filename=train_filename, dev_filename=dev_filename)
+With the reader fine-tuned, let’s now compare its performance on the test set against our baseline model:
+reader_eval["Fine-tune on SQuAD + SubjQA"] =evaluate_reader(reader) plot_reader_eval(reader_eval)
+Wow, domain adaptation has increased our EM score by a factor of six and more than doubled the F1-score! At this point, you might be wondering why we didn’t just fine-tune a pretrained language model directly on the SubjQA training set. One reason is that we only have 1,295 training examples in SubjQA while SQuAD has over 100,000, so we might run into challenges with overfitting. Nevertheless, let’s take a look at what naive fine-tuning produces. For a fair comparison, we’ll use the same language model
+that was used for fine-tuning our baseline on SQuAD. As before, we’ll load up the model with the FARMReader:
+minilm_ckpt="microsoft/MiniLM-L12-H384-uncased" 
+minilm_reader=FARMReader(model_name_or_path=minilm_ckpt, progress_bar=False, max_seq_len=max_seq_length, doc_stride=doc_stride, return_no_answer=True)
+Next, we fine-tune for one epoch:
+minilm_reader.train(data_dir=".", use_gpu=True, n_epochs=1, batch_size=16, 	train_filename=train_filename, dev_filename=dev_filename)
+and include the evaluation on the test set:
+reader_eval["Fine-tune on SubjQA"] =evaluate_reader(minilm_reader) plot_reader_eval(reader_eval)
+We can see that fine-tuning the language model directly on SubjQA results in consid‐erably worse performance than fine-tuning on SQuAD and SubjQA.

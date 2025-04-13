@@ -1,0 +1,19 @@
+Now that we’ve seen how to evaluate the reader and retriever components individu‐ally, let’s tie them together to measure the overall performance of our pipeline. To do so, we’ll need to augment our retriever pipeline with nodes for the reader and its
+evaluation. We’ve seen that we get almost perfect recall at k = 10, so we can fix this value and assess the impact this has on the reader’s performance (since it will now receive multiple contexts per query compared to the SQuAD-style evaluation):
+# Initialize retriever pipeline 
+pipe=EvalRetrieverPipeline(es_retriever) 
+# Add nodes for reader 
+eval_reader=EvalAnswers() 
+pipe.pipeline.add_node(component=reader, name="QAReader", 
+	inputs=["EvalRetriever"]) 
+pipe.pipeline.add_node(component=eval_reader, name="EvalReader", 	inputs=["QAReader"]) 
+# Evaluate!
+run_pipeline(pipe) 
+# Extract metrics from reader 
+reader_eval["QA Pipeline (top-1)"] = { 
+	k:vfork,vineval_reader.__dict__.items() 	ifkin ["top_1_em", "top_1_f1"]}
+We can then compare the top 1 EM and F1 scores for the model to predict an answer in the documents returned by the retriever in Figure 7-12.
+Figure 7-12. Comparison of EM and F  scores for the reader against the whole QA pipeline
+From this plot we can see the effect that the retriever has on the overall performance. In particular, there is an overall degradation compared to matching the question-context pairs, as is done in the SQuAD-style evaluation. This can be circumvented by increasing the number of possible answers that the reader is allowed to predict.
+Until now we have only extracted answer spans from the context, but in general it could be that bits and pieces of the answer are scattered throughout the document
+and we would like our model to synthesize these fragments into a single coherent answer. Let’s have a look at how we can use generative QA to succeed at this task.
